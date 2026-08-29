@@ -109,8 +109,15 @@ func runDoctor(g *globals) error {
 	// buf.lock staleness: a lock older than the buf.yaml that declares the
 	// deps means somebody added a dependency without updating the lock, and
 	// the next clean build resolves something different from this one.
-	lockPath := filepath.Join(p.Cfg.Root, "buf.lock")
-	yamlPath := filepath.Join(p.Cfg.Root, "buf.yaml")
+	// buf walks up to find its workspace root, so a project nested inside one
+	// -- an example beside the framework that declares it, say -- has a
+	// perfectly good buf.yaml above interchange.yaml. Looking only beside it
+	// reports a broken setup that builds fine.
+	yamlPath, found := findUp(p.Cfg.Root, "buf.yaml")
+	lockPath := filepath.Join(filepath.Dir(yamlPath), "buf.lock")
+	if !found {
+		yamlPath = filepath.Join(p.Cfg.Root, "buf.yaml")
+	}
 	ls, lerr := os.Stat(lockPath)
 	ys, yerr := os.Stat(yamlPath)
 	switch {
@@ -193,4 +200,20 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// findUp looks for name in dir and every directory above it, stopping at the
+// filesystem root.
+func findUp(dir, name string) (string, bool) {
+	for {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }

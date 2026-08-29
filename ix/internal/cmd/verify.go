@@ -123,6 +123,10 @@ func countLocalFiles(im *image.Image, local func(string) bool) int {
 // the rest follow, because "one file differs" is rarely the whole story.
 func (p *Project) diffOutputs(tmp string) []string {
 	var out []string
+	// Out directories nest -- gen/go and gen/go/authz -- so one file is
+	// discovered once per containing directory. Reporting it twice reads as
+	// two problems and makes the count wrong.
+	reported := map[string]struct{}{}
 	for _, dir := range p.Cfg.OutDirs() {
 		want := filepath.Join(tmp, dir)
 		got := filepath.Join(p.Cfg.Root, dir)
@@ -147,6 +151,9 @@ func (p *Project) diffOutputs(tmp string) []string {
 			rel := filepath.ToSlash(filepath.Join(dir, n))
 			w, inWant := wantFiles[n]
 			gg, inGot := gotFiles[n]
+			if _, seen := reported[rel]; seen {
+				continue
+			}
 			switch {
 			case inWant && !inGot:
 				out = append(out, rel+" is missing")
@@ -154,7 +161,10 @@ func (p *Project) diffOutputs(tmp string) []string {
 				out = append(out, rel+" is no longer generated")
 			case !bytes.Equal(w, gg):
 				out = append(out, rel+" differs")
+			default:
+				continue
 			}
+			reported[rel] = struct{}{}
 		}
 	}
 	return out

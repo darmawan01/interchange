@@ -19,7 +19,7 @@ plugins:
 ## ix: build the CLI.
 .PHONY: ix
 ix:
-	$(GO) build -o $(BIN)/ix ./ix
+	$(GO) build -o $(BIN)/ix ./ix/cmd/ix
 
 .PHONY: generate
 generate: plugins ix

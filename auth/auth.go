@@ -37,6 +37,16 @@ import (
 // annotation.
 type AuthType = authv1.AuthType
 
+// The credential kinds, re-exported so wiring code names them here rather
+// than reaching into this module's generated package. The generated names are
+// correct and unreadable; a composition root should read as prose.
+const (
+	AuthTypeUnspecified = authv1.AuthType_AUTH_TYPE_UNSPECIFIED
+	AuthTypeAPIKey      = authv1.AuthType_AUTH_TYPE_API_KEY
+	AuthTypeSession     = authv1.AuthType_AUTH_TYPE_SESSION
+	AuthTypeWorkload    = authv1.AuthType_AUTH_TYPE_WORKLOAD
+)
+
 // Verb is the action half of a permission.
 type Verb = authv1.Verb
 

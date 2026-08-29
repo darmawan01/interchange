@@ -1,0 +1,62 @@
+# The example, described the way `ix` reads it: one buf module, one Go tree,
+# one front end. Every generator this project runs is declared here and
+# nowhere else, which is what lets `ix verify` be a gate rather than a habit.
+version: 1
+
+sources:
+  - path: api/**/*.proto
+    frontend: proto
+
+transports:
+  # The service-level (transports) option in catalog.proto says the same
+  # thing. This is the project-wide default for an RPC that declares nothing;
+  # a per-RPC annotation overrides it, and four of the five do.
+  default: [rpc, rest]
+  drivers:
+    - nats
+
+generate:
+  # Pinned to the protobuf runtime core requires; a split pin means two
+  # descriptor runtimes in one binary.
+  - {plugin: "buf.build/protocolbuffers/go:v1.36.12", out: gen/go, opt: [paths=source_relative]}
+
+  # The browser/CLI/SDK client, pinned to the connect-go version core imports.
+  - {plugin: "buf.build/connectrpc/go:v1.20.0", out: gen/go, opt: [paths=source_relative]}
+
+  # The local plugins live in the repo's ./bin, built by `make plugins` from
+  # the modules that own them: this example is a consumer of tools/ and auth/,
+  # not their home.
+  - {plugin: ../../bin/protoc-gen-bus, out: gen/go, opt: [paths=source_relative]}
+  - {plugin: ../../bin/protoc-gen-cli, out: gen/go, opt: [paths=source_relative, require_annotation=true]}
+
+  # The permission table is cross-cutting: one pass over the whole tree.
+  - plugin: ../../bin/protoc-gen-authz
+    out: gen/go/authz
+    strategy: all
+    opt:
+      - package=authz
+      - import_path=github.com/darmawan01/interchange/examples/catalog/gen/go/authz
+      - on_missing_annotation=error
+      - known_atoms=providers.read+providers.create+providers.edit
+
+managed:
+  enabled: true
+  disable:
+    # googleapis' generated Go is a published module; rewriting its prefix
+    # would point at import paths nobody publishes.
+    - {file_option: go_package, module: buf.build/googleapis/googleapis}
+  override:
+    # One override per workspace module, so an import keeps the import path
+    # its owner generated it under. Without the selectors, auth.proto would be
+    # compiled a second time into this example's tree and the process would
+    # panic at init on a duplicate registration.
+    - {file_option: go_package_prefix, value: github.com/darmawan01/interchange/examples/catalog/gen/go, module: buf.build/darmawan01/catalog}
+    - {file_option: go_package_prefix, value: github.com/darmawan01/interchange/gen/go, module: buf.build/darmawan01/interchange}
+    - {file_option: go_package_prefix, value: github.com/darmawan01/interchange/auth/gen/go, module: buf.build/darmawan01/interchange-auth}
+    - {file_option: go_package_prefix, value: github.com/darmawan01/interchange/tools/gen/go, module: buf.build/darmawan01/interchange-cli}
+
+# The optional module. Delete this block and core never learns what a
+# permission is; the service still serves on every road.
+auth:
+  provider: rbac
+  on_missing_annotation: error

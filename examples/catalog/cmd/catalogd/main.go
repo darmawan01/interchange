@@ -67,7 +67,7 @@ func run(addr, natsURL string, log *slog.Logger) error {
 		return err
 	}
 
-	srv := &http.Server{Addr: addr, Handler: svc.RPC.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: svc.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -76,7 +76,8 @@ func run(addr, natsURL string, log *slog.Logger) error {
 	}()
 
 	log.Info("serving",
-		slog.String("http", addr),
+		slog.String("connect", addr+"/catalog.v1.CatalogService/*"),
+		slog.String("rest", addr+"/v1/catalog/providers"),
 		slog.String("bus", drv.Caps().Name),
 		slog.Any("procedures", svc.Registry.Procedures()))
 

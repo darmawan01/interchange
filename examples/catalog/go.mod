@@ -9,6 +9,7 @@ require (
 	connectrpc.com/connect v1.20.0
 	github.com/darmawan01/interchange v0.0.0
 	github.com/darmawan01/interchange/auth v0.0.0
+	github.com/darmawan01/interchange/binding/rest v0.0.0
 	github.com/darmawan01/interchange/driver/nats v0.0.0
 	github.com/darmawan01/interchange/errors v0.0.0
 	github.com/darmawan01/interchange/tools v0.0.0
@@ -25,6 +26,7 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1 // indirect
 	buf.build/go/protovalidate v1.3.0 // indirect
 	cel.dev/expr v0.25.1 // indirect
+	connectrpc.com/vanguard v0.4.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.7.2-default-no-op // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/google/cel-go v0.30.0 // indirect
@@ -48,6 +50,8 @@ require (
 replace github.com/darmawan01/interchange => ../..
 
 replace github.com/darmawan01/interchange/auth => ../../auth
+
+replace github.com/darmawan01/interchange/binding/rest => ../../binding/rest
 
 replace github.com/darmawan01/interchange/driver/nats => ../../driver/nats
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Runner invokes buf in a working directory.
@@ -108,14 +109,46 @@ func (r *Runner) Output(args ...string) ([]byte, error) {
 		return nil, err
 	}
 	r.echo(args)
-	c := r.cmd(args...)
-	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-	if err := c.Run(); err != nil {
-		return stdout.Bytes(), &ExitError{Args: args, Code: c.ProcessState.ExitCode(), Stderr: stderr.String(), Err: err}
+
+	// Remote plugins are rate limited, and unauthenticated CI hits the limit
+	// routinely. A rate limit is not a broken build, and a drift gate that
+	// goes red because a registry was busy is a gate people learn to ignore --
+	// so back off and retry rather than reporting a failure that is not one.
+	var out []byte
+	var err error
+	for attempt := range rateLimitRetries {
+		c := r.cmd(args...)
+		var stdout, stderr bytes.Buffer
+		c.Stdout = &stdout
+		c.Stderr = &stderr
+		if runErr := c.Run(); runErr != nil {
+			out, err = stdout.Bytes(), &ExitError{
+				Args: args, Code: c.ProcessState.ExitCode(), Stderr: stderr.String(), Err: runErr,
+			}
+			if rateLimited(stderr.String()) && attempt < rateLimitRetries-1 {
+				r.waitBeforeRetry(attempt)
+				continue
+			}
+			return out, err
+		}
+		return stdout.Bytes(), nil
 	}
-	return stdout.Bytes(), nil
+	return out, err
+}
+
+// rateLimitRetries is small on purpose: enough to ride out a burst, few enough
+// that a genuinely exhausted quota fails while somebody is still watching.
+const rateLimitRetries = 4
+
+func rateLimited(stderr string) bool {
+	return strings.Contains(stderr, "resource_exhausted") ||
+		strings.Contains(stderr, "too many requests")
+}
+
+func (r *Runner) waitBeforeRetry(attempt int) {
+	wait := time.Duration(1<<attempt) * 2 * time.Second
+	r.echo([]string{fmt.Sprintf("# rate limited by the registry; retrying in %s", wait)})
+	time.Sleep(wait)
 }
 
 // Run streams buf's output to the caller's stdout and stderr. Commands that

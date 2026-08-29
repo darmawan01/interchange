@@ -3,17 +3,21 @@
 // quoted above it. A checkbox nobody can run is a plan; a checkbox with a test
 // under it is a claim.
 //
-// Three roads share one registry throughout: the Connect binding over
-// httptest driven by the GENERATED Connect client, the in-process memory bus,
-// and a real NATS broker started inside the test binary. No docker, no
-// fixture, no hand-written service code -- the ServiceDesc, the client and the
-// permission table are all generated from api/catalog/v1/catalog.proto.
+// Four roads share one registry throughout: the Connect binding over httptest
+// driven by the GENERATED Connect client, the REST binding transcoded off the
+// same registry, the in-process memory bus, and a real NATS broker started
+// inside the test binary. No docker, no fixture, no hand-written service code
+// -- the ServiceDesc, the clients and the permission table are all generated
+// from api/catalog/v1/catalog.proto.
 package catalog_test
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	stderrors "errors"
+	"flag"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +48,7 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -152,7 +157,7 @@ func (a *recordingAuthorizer) snapshot() []string {
 }
 
 // ---------------------------------------------------------------------------
-// The stack. One chain, one registry, three roads.
+// The stack. One chain, one registry, four roads.
 // ---------------------------------------------------------------------------
 
 type roads struct {
@@ -203,7 +208,7 @@ func newRoads(t *testing.T) *roads {
 	}
 	t.Cleanup(func() { _ = svc.Close() })
 
-	httpSrv := httptest.NewServer(svc.RPC.Handler())
+	httpSrv := httptest.NewServer(svc.Handler())
 	t.Cleanup(httpSrv.Close)
 
 	mem := memory.New()
@@ -250,13 +255,18 @@ func natsDriver(t *testing.T, s *server.Server) *natsdriver.Driver {
 	return d
 }
 
-// The three roads, behind one name each. Every one of them ends up in
+// The four roads, behind one name each. Every one of them ends up in
 // Registry.Dispatch; none of them holds a chain.
 const (
 	roadHTTP   = "http"
+	roadREST   = "rest"
 	roadMemory = "memory"
 	roadNATS   = "nats"
 )
+
+// allRoads is every road the contract declares for ListProviders. The chain
+// symmetry claim is quantified over exactly this list.
+func allRoads() []string { return []string{roadHTTP, roadREST, roadMemory, roadNATS} }
 
 func busRoads() []string { return []string{roadMemory, roadNATS} }
 
@@ -342,18 +352,101 @@ func with(md interchange.Metadata, k, v string) interchange.Metadata {
 	return out
 }
 
-// listOnRoad makes the same ListProviders call on any of the three roads.
+// listOnRoad makes the same ListProviders call on any of the four roads.
 func (r *roads) listOnRoad(t *testing.T, road string, md interchange.Metadata) (*catalogv1.ListProvidersResponse, error) {
 	t.Helper()
 	req := &catalogv1.ListProvidersRequest{TenantId: tenant}
-	if road == roadHTTP {
+	switch road {
+	case roadHTTP:
 		resp, err := r.connectClient().ListProviders(context.Background(), header(req, md))
 		if err != nil {
 			return nil, err
 		}
 		return resp.Msg, nil
+	case roadREST:
+		out := &catalogv1.ListProvidersResponse{}
+		if _, err := r.rest(t, http.MethodGet, "/v1/catalog/providers?tenant_id="+tenant, md, out); err != nil {
+			return nil, err
+		}
+		return out, nil
 	}
 	return r.busClient(t, road, md).ListProviders(context.Background(), req)
+}
+
+// rest calls the partner surface with a real HTTP request and decodes the
+// body. It returns the raw body too, because on this road the spelling of the
+// field names is part of the contract.
+func (r *roads) rest(t *testing.T, method, path string, md interchange.Metadata, out proto.Message, body ...string) ([]byte, error) {
+	t.Helper()
+	var in io.Reader
+	if len(body) > 0 {
+		in = strings.NewReader(body[0])
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, r.http.URL+path, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range md {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// application/problem+json, with the machine-readable reason in the
+		// same header the Connect binding sets.
+		return raw, &restError{
+			err: &interchange.Error{
+				Code:    statusToCode(resp.StatusCode),
+				Message: string(raw),
+				Reason:  resp.Header.Get(rpc.ErrorReasonHeader),
+			},
+			status:      resp.StatusCode,
+			contentType: resp.Header.Get("Content-Type"),
+		}
+	}
+	if out != nil {
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, out); err != nil {
+			t.Fatalf("decode %s: %v\n%s", path, err, raw)
+		}
+	}
+	return raw, nil
+}
+
+// restError carries the two things only this surface has: the HTTP status and
+// the media type the failure was rendered as.
+type restError struct {
+	err         *interchange.Error
+	status      int
+	contentType string
+}
+
+func (e *restError) Error() string { return e.err.Error() }
+
+// Unwrap is what lets interchange.CodeOf and ReasonOf read this the same way
+// they read a bus error, which is what makes `result` road-agnostic.
+func (e *restError) Unwrap() error { return e.err }
+
+// statusToCode inverts errors.HTTPStatus over the codes this suite raises. It
+// is written as a search rather than a second table so the two can never
+// disagree: if the REST surface projects a status the taxonomy does not, this
+// says so instead of quietly returning "unknown".
+func statusToCode(status int) interchange.Code {
+	for c := interchange.CodeCanceled; c <= interchange.CodeUnauthenticated; c++ {
+		if errors.HTTPStatus(c) == status {
+			return c
+		}
+	}
+	return interchange.CodeUnknown
 }
 
 // ---------------------------------------------------------------------------
@@ -377,13 +470,13 @@ func TestChainConfiguredOnceRunsInTheSameOrderOnEveryRegisteredBinding(t *testin
 		t.Fatalf("wire.go composes %v, this suite was written against %v", got, wantChain)
 	}
 
-	for _, road := range []string{roadHTTP, roadMemory, roadNATS} {
+	for _, road := range allRoads() {
 		if _, err := r.listOnRoad(t, road, with(bearer(catalog.TokenReader), "x-trace", road)); err != nil {
 			t.Fatalf("%s: %v", road, err)
 		}
 	}
 
-	for _, road := range []string{roadHTTP, roadMemory, roadNATS} {
+	for _, road := range allRoads() {
 		if got := r.tracer.trace(road); !slices.Equal(got, r.wantPath) {
 			t.Fatalf("%s road ran\n  %v\nchain is\n  %v", road, got, r.wantPath)
 		}
@@ -495,7 +588,7 @@ func TestAuthorizationFiresOnTheBusCall(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, road := range []string{roadHTTP, roadMemory, roadNATS} {
+			for _, road := range allRoads() {
 				if got := list(t, road, tc.md); got != tc.want {
 					t.Fatalf("%s: got %+v, want %+v", road, got, tc.want)
 				}
@@ -571,7 +664,7 @@ func TestAServiceWithAnEmptyChainWorks(t *testing.T) {
 		t.Fatalf("chain has %d stages, want an empty chain", n)
 	}
 
-	httpSrv := httptest.NewServer(svc.RPC.Handler())
+	httpSrv := httptest.NewServer(svc.Handler())
 	t.Cleanup(httpSrv.Close)
 
 	ns := natsServer(t)
@@ -680,6 +773,48 @@ func TestTheTransportsAnnotationIsLoadBearing(t *testing.T) {
 		}
 	})
 
+	t.Run("neither is reachable on the REST surface", func(t *testing.T) {
+		// The REST binding on its own listener, so nothing else can answer.
+		// The transcoder also speaks Connect on the procedure path, and its
+		// method set is the REST-filtered one -- which is what stops a
+		// partner poking the partner listener from reaching a bus-only
+		// method by the back door.
+		restOnly := httptest.NewServer(r.svc.REST.Handler())
+		t.Cleanup(restOnly.Close)
+
+		post := func(procedure, body string, md interchange.Metadata) int {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, restOnly.URL+procedure, strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Connect-Protocol-Version", "1")
+			for k, v := range md {
+				req.Header.Set(k, v)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			return resp.StatusCode
+		}
+
+		for _, procedure := range []string{
+			catalogv1bus.CatalogServiceSyncProviderProcedure,
+			catalogv1bus.CatalogServiceReconcileProcedure,
+		} {
+			if got := post(procedure, "{}", apiKey(catalog.KeyPlatform)); got != http.StatusNotFound {
+				t.Fatalf("%s answered %d on the REST listener; there must be no route", procedure, got)
+			}
+		}
+		// A method that did declare the road is served, so the 404s above are
+		// the filter and not a broken listener.
+		if got := post(catalogv1bus.CatalogServiceListProvidersProcedure, `{"tenant_id":"`+tenant+`"}`, bearer(catalog.TokenReader)); got != http.StatusOK {
+			t.Fatalf("ListProviders answered %d on the REST listener", got)
+		}
+	})
+
 	t.Run("the fan-out the registry reports is the fan-out the contract declares", func(t *testing.T) {
 		onRPC := procedures(r.svc.Registry.MethodsOn(transportv1.Transport_TRANSPORT_RPC))
 		wantRPC := []string{
@@ -689,6 +824,10 @@ func TestTheTransportsAnnotationIsLoadBearing(t *testing.T) {
 		}
 		if !slices.Equal(onRPC, wantRPC) {
 			t.Fatalf("on RPC: %v, want %v", onRPC, wantRPC)
+		}
+		onREST := procedures(r.svc.Registry.MethodsOn(transportv1.Transport_TRANSPORT_REST))
+		if !slices.Equal(onREST, wantRPC) {
+			t.Fatalf("on REST: %v, want %v", onREST, wantRPC)
 		}
 		if got := len(r.svc.Registry.MethodsOn(transportv1.Transport_TRANSPORT_BUS)); got != 5 {
 			t.Fatalf("%d methods on the bus, want all 5", got)
@@ -931,5 +1070,259 @@ func TestEveryReasonThisServiceRaisesIsDeclared(t *testing.T) {
 		if !set.Has(reason) {
 			t.Errorf("%s is raised on some road but is not in the declared set; add it to catalog.Reasons()", reason)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 · "An existing REST consumer is served by the transcoder." +
+// "Old hand-written handlers are deleted as each path is covered."
+// ---------------------------------------------------------------------------
+
+// TestAnExistingRESTConsumerIsServedByTheTranscoder calls the URIs a partner
+// already has -- the ones written in the google.api.http annotations -- with
+// plain net/http and no generated client at all, which is what a partner has.
+//
+// Nothing in this repository implements those paths. There is no REST handler
+// to delete because there was never one to write: the URI exists because the
+// contract carries an annotation, and the call lands in Registry.Dispatch like
+// every other road.
+func TestAnExistingRESTConsumerIsServedByTheTranscoder(t *testing.T) {
+	r := newRoads(t)
+	md := bearer(catalog.TokenWriter)
+
+	t.Run("GET /v1/catalog/providers", func(t *testing.T) {
+		viaREST := &catalogv1.ListProvidersResponse{}
+		if _, err := r.rest(t, http.MethodGet, "/v1/catalog/providers?tenant_id="+tenant, md, viaREST); err != nil {
+			t.Fatalf("REST: %v", err)
+		}
+		viaRPC, err := r.listOnRoad(t, roadHTTP, md)
+		if err != nil {
+			t.Fatalf("RPC: %v", err)
+		}
+		// The same message, not merely the same data: one contract, one
+		// handler, two projections of the one response.
+		if !proto.Equal(viaREST, viaRPC) {
+			t.Fatalf("the two HTTP roads answered differently:\n  rest=%v\n  rpc =%v", viaREST, viaRPC)
+		}
+		if len(viaREST.GetProviders()) != len(r.seed) {
+			t.Fatalf("got %d providers, want %d", len(viaREST.GetProviders()), len(r.seed))
+		}
+	})
+
+	t.Run("GET /v1/catalog/providers/{provider_id}", func(t *testing.T) {
+		out := &catalogv1.GetProviderResponse{}
+		path := "/v1/catalog/providers/" + r.seed[0].GetProviderId() + "?tenant_id=" + tenant
+		if _, err := r.rest(t, http.MethodGet, path, md, out); err != nil {
+			t.Fatalf("REST: %v", err)
+		}
+		// The path parameter bound onto the request message's provider_id
+		// field; nothing here parsed a URI.
+		if !proto.Equal(out.GetProvider(), r.seed[0]) {
+			t.Fatalf("got %v, want %v", out.GetProvider(), r.seed[0])
+		}
+	})
+
+	t.Run("POST /v1/catalog/providers", func(t *testing.T) {
+		out := &catalogv1.CreateProviderResponse{}
+		body := `{"tenant_id":"` + tenant + `","display_name":"worldpay"}`
+		if _, err := r.rest(t, http.MethodPost, "/v1/catalog/providers", md, out, body); err != nil {
+			t.Fatalf("REST: %v", err)
+		}
+		if out.GetProvider().GetDisplayName() != "worldpay" {
+			t.Fatalf("created %v", out.GetProvider())
+		}
+		// And it is really in the store, reachable from another road.
+		viaBus, err := r.busClient(t, roadNATS, md).
+			GetProvider(context.Background(), &catalogv1.GetProviderRequest{
+				TenantId: tenant, ProviderId: out.GetProvider().GetProviderId(),
+			})
+		if err != nil {
+			t.Fatalf("the bus cannot see what REST created: %v", err)
+		}
+		if !proto.Equal(viaBus.GetProvider(), out.GetProvider()) {
+			t.Fatalf("bus=%v rest=%v", viaBus.GetProvider(), out.GetProvider())
+		}
+	})
+
+	t.Run("a failure is problem+json with the same reason as every other road", func(t *testing.T) {
+		path := "/v1/catalog/providers/prov_nope?tenant_id=" + tenant
+		_, err := r.rest(t, http.MethodGet, path, md, nil)
+		var re *restError
+		if !stderrors.As(err, &re) {
+			t.Fatalf("expected a REST failure, got %v", err)
+		}
+		if re.status != http.StatusNotFound {
+			t.Fatalf("status %d, want 404", re.status)
+		}
+		if got := re.contentType; !strings.HasPrefix(got, "application/problem+json") {
+			t.Fatalf("content type %q, want application/problem+json", got)
+		}
+		// The reason -- the thing a client branches on -- is byte-identical
+		// to the one the bus and the Connect road return for the same call.
+		if got := result(err); got.reason != catalog.ReasonProviderNotFound {
+			t.Fatalf("reason %q, want %q", got.reason, catalog.ReasonProviderNotFound)
+		}
+		if !strings.Contains(string(re.err.Message), `"reason":"`+catalog.ReasonProviderNotFound+`"`) {
+			t.Fatalf("the problem document does not carry the reason:\n%s", re.err.Message)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 · "Per-surface JSON casing, written down: camelCase on RPC,
+// snake_case on REST."
+// ---------------------------------------------------------------------------
+
+// TestPerSurfaceJSONCasingCamelCaseOnRPCSnakeCaseOnREST reads the raw bytes
+// off both HTTP roads. The two surfaces have different audiences -- an SDK
+// generated from the contract, and a partner reading a URI -- and the decision
+// is written down in binding/rest/README.md. A surface whose casing nobody
+// chose is the failure; a surface whose casing nobody checked is how you get
+// there.
+func TestPerSurfaceJSONCasingCamelCaseOnRPCSnakeCaseOnREST(t *testing.T) {
+	r := newRoads(t)
+	md := bearer(catalog.TokenReader)
+
+	restBody, err := r.rest(t, http.MethodGet, "/v1/catalog/providers?tenant_id="+tenant, md, nil)
+	if err != nil {
+		t.Fatalf("REST: %v", err)
+	}
+	if !strings.Contains(string(restBody), `"display_name"`) {
+		t.Fatalf("REST is not snake_case:\n%s", restBody)
+	}
+	if strings.Contains(string(restBody), `"displayName"`) {
+		t.Fatalf("REST leaked the RPC surface's casing:\n%s", restBody)
+	}
+
+	// The Connect road, spoken as a raw JSON POST the way a browser client
+	// does -- no generated client in the way to hide the spelling.
+	rpcBody := r.connectJSON(t, catalogv1bus.CatalogServiceListProvidersProcedure,
+		`{"tenantId":"`+tenant+`"}`, md)
+	if !strings.Contains(rpcBody, `"displayName"`) {
+		t.Fatalf("RPC is not camelCase:\n%s", rpcBody)
+	}
+	if strings.Contains(rpcBody, `"display_name"`) {
+		t.Fatalf("RPC leaked the REST surface's casing:\n%s", rpcBody)
+	}
+
+	// A partner already sending the other spelling keeps working: protojson
+	// accepts a field under both names on the way in. This is the one thing
+	// that makes the decision safe to have made.
+	out := &catalogv1.CreateProviderResponse{}
+	if _, err := r.rest(t, http.MethodPost, "/v1/catalog/providers", bearer(catalog.TokenWriter), out,
+		`{"tenantId":"`+tenant+`","displayName":"legacy-client"}`); err != nil {
+		t.Fatalf("a partner sending camelCase must keep working: %v", err)
+	}
+	if out.GetProvider().GetDisplayName() != "legacy-client" {
+		t.Fatalf("got %v", out.GetProvider())
+	}
+}
+
+// connectJSON speaks the Connect unary protocol by hand, so the test sees the
+// bytes rather than a decoded message.
+func (r *roads) connectJSON(t *testing.T, procedure, body string, md interchange.Metadata) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		r.http.URL+procedure, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	for k, v := range md {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("connect POST %s: %d\n%s", procedure, resp.StatusCode, raw)
+	}
+	return string(raw)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 · "The emitted OpenAPI matches what partners already call, or the
+// migration is explicitly versioned."
+// ---------------------------------------------------------------------------
+
+var updateGolden = flag.Bool("update", false, "rewrite openapi.json")
+
+// TestTheEmittedOpenAPIMatchesWhatPartnersCall pins the document against a
+// committed golden file. It is the partner-facing artifact, so it is under a
+// drift gate of its own: a path that changes is a change a partner will
+// notice, and it should be visible in a diff before it is visible in their
+// logs.
+//
+// It also asserts the three properties that make the document safe to publish:
+// the paths are the ones the annotations declare, the property names are the
+// REST surface's, and nothing the contract kept off this road appears at all.
+func TestTheEmittedOpenAPIMatchesWhatPartnersCall(t *testing.T) {
+	doc, err := catalog.OpenAPI("https://api.example.com")
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+
+	if *updateGolden {
+		if err := os.WriteFile("openapi.json", doc, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile("openapi.json")
+	if err != nil {
+		t.Fatalf("%v (run `go test . -update`)", err)
+	}
+	if string(doc) != string(golden) {
+		t.Fatalf("openapi.json is stale; run `go test . -update` and review the diff")
+	}
+
+	// Deterministic: same input, same bytes, or the gate flaps and nobody
+	// trusts it.
+	again, err := catalog.OpenAPI("https://api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(doc) {
+		t.Fatal("two emissions of the same contract differ")
+	}
+
+	var parsed struct {
+		Paths map[string]map[string]struct {
+			OperationID string `json:"operationId"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(doc, &parsed); err != nil {
+		t.Fatalf("the emitted document is not JSON: %v", err)
+	}
+
+	wantPaths := []string{"/v1/catalog/providers", "/v1/catalog/providers/{provider_id}"}
+	got := make([]string, 0, len(parsed.Paths))
+	for p := range parsed.Paths {
+		got = append(got, p)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, wantPaths) {
+		t.Fatalf("paths are %v, want %v", got, wantPaths)
+	}
+
+	// The two roads a partner is not on must not be documented on the road
+	// they are on. An internal RPC in a partner-facing spec is a leak.
+	for _, absent := range []string{"SyncProvider", "Reconcile", "sync", "reconcile"} {
+		if strings.Contains(string(doc), absent) {
+			t.Fatalf("%q appears in the partner-facing document; it declares no REST road", absent)
+		}
+	}
+
+	// Property names are the REST surface's, matching what the transcoder
+	// actually writes. A spec that says displayName over a wire that says
+	// display_name is worse than no spec.
+	if !strings.Contains(string(doc), `"display_name"`) || strings.Contains(string(doc), `"displayName"`) {
+		t.Fatal("the document's property names do not match the REST surface's casing")
 	}
 }

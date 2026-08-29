@@ -44,7 +44,8 @@ topics or anything else under the prefix.
 
 The client runs with `EnableManualAcknowledgment`, and the PUBACK is `Inbound.Done` -- not
 delivery. A request is acknowledged when the engine has handled it and sent its reply; every frame
-of a chunked request stays unacknowledged until the whole message has been handled. Acking on
+of a chunked message, in either direction, stays unacknowledged until the whole message has been
+handled. Acking on
 arrival would tell the broker a message was handled before the handler started, and replay
 suppression can dedupe a redelivery but cannot conjure one.
 
@@ -54,10 +55,9 @@ Two consequences worth knowing: paho flushes acks in receipt order, so one unhan
 up the acks behind it on that connection; and a redelivery arrives only when the broker's inflight
 timer fires or the session resumes.
 
-Two packets are acknowledged by the driver rather than by the engine, both noted in `route`: one
-nothing subscribed to (there is no handler to finish, and redelivering it would loop), and a reply
-on this client's own inbox (the engine matches a reply to its pending call synchronously, and it
-calls `Done` only for the reassembled kind -- see the seam note below).
+The driver acknowledges one kind of packet on its own account: one no subscription matched. There
+is no handler to finish it and redelivering it would loop, so it is acked and dropped. Everything
+else -- requests, replies, and every frame of a chunked message -- is the engine's call.
 
 ## Capabilities
 
@@ -114,37 +114,37 @@ servers sharing a group split 20 calls instead of each answering all of them; a 
 Correlation Data and Response Topic on the wire; and every test that exercises the broker asserts
 it has no message left inflight, which is what catches a forgotten PUBACK.
 
-The broker is shut down off the test goroutine: mochi 2.7.9 can deadlock in `Server.Close` when a
-client is connecting or disconnecting at the same moment -- `Clients.GetByListener` holds the read
-lock and calls `Len`, which takes it again, behind a writer waiting in `Clients.Delete`. It is an
-upstream bug in the test harness, not in the driver or the engine, and v2.7.9 is the latest release.
+The broker is shut down off the test goroutine, with a 2 s wait, to work around an upstream bug:
+`github.com/mochi-mqtt/server/v2` **v2.7.9** (the latest release) can deadlock in `Server.Close`
+when a client is connecting or disconnecting at the same moment -- `Clients.GetByListener` holds
+the read lock and calls `Len`, which takes it again, behind a writer waiting in `Clients.Delete`,
+and Go's `RWMutex` will not grant that second read lock. It is in the test harness, not in the
+driver or the engine. Delete the workaround in `broker()` once a release past v2.7.9 fixes it.
 
 ## Seam findings
 
-Two findings from the first pass, both since fixed in core; one minor note and one still open.
+Four findings, all now fixed in core. They are what this driver was built to produce, so they are
+recorded rather than deleted.
 
 1. **Fixed.** `drivertest` could not be run by a driver that was not `TRANSPORT_BUS`: the fixture
    declared RPC/REST/BUS only and `drivertest.Run` passed no `engine.Expose`, so an honest
    `TRANSPORT_MQTT` driver failed `Start` with *"no procedure is exposed on TRANSPORT_MQTT"*. The
    suite now passes `engine.Expose(pair.Server.Caps().Transport)` and the fixture declares every
-   road; the shim this package carried is gone and the driver runs the suite as itself.
+   road; the driver runs the suite as itself.
 
 2. **Fixed.** The correlation id was unreachable from `Publish` -- inside the opaque body, which a
    driver may not parse -- so MQTT 5 Correlation Data could not be set on a request. The engine now
    surfaces it as `interchange.MetaCorrelationID` in the header map, and `TestCorrelationData`
    asserts it reaches the wire and comes back on the reply.
 
-3. **Minor.** `Inbound.Reply` and `Unsubscribe` carry no context, so a driver whose transport can
-   block -- a QoS 1 publish waits for its PUBACK -- has to invent its own deadline or risk hanging
-   the engine's shutdown behind a silent broker. This one uses 30 seconds; a context parameter on
-   `Reply` would let the engine own that the way it owns the fallback path's.
+3. **Fixed.** `Inbound.Reply` carried no context, so a driver whose transport can block -- a QoS 1
+   publish waits for its PUBACK -- had to invent a deadline. It now takes the engine's, which is
+   the same 30 s that bounds the fallback publish path.
 
-4. **Open.** `engine.Client.onReply` calls `Inbound.Done` only on the reassembly path. A reply that
-   arrives whole -- the common case -- and every early return (malformed, not a response, unknown
-   correlation id) leave it uncalled. On a transport that wires `Done` to an acknowledgement, that
-   is a QoS 1 packet nobody ever PUBACKs: it stays inflight, is redelivered on the broker's timer,
-   and, because acks flush in receipt order, it stalls the ack of every message behind it on that
-   connection. This driver works around it by acknowledging anything delivered on its own inbox
-   once `fn` returns, which is honest for a reply but is the engine's guarantee to make, not the
-   driver's. The fix is one `ackAll` in `onReply` on the whole-response path -- and the WebSocket
-   and NATS drivers will want it before they wire acknowledgement to anything.
+4. **Fixed.** `engine.Client.onReply` called `Inbound.Done` only on the reassembly path, so a reply
+   that arrived whole -- the common case -- was a QoS 1 packet nobody ever PUBACKed: inflight until
+   the broker's timer, and stalling the acks behind it, because a broker flushes them in receipt
+   order. Every path out of `onReply` now acknowledges, including the reply whose correlation id
+   nobody is waiting for any more -- it did arrive, and saying so is what stops the broker sending
+   it forever. The driver's workaround is gone, and the tests still fail loudly if `Ack` stops
+   being called.

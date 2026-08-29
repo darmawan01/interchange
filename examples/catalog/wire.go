@@ -3,15 +3,19 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/darmawan01/interchange"
 	"github.com/darmawan01/interchange/auth"
-	authv1 "github.com/darmawan01/interchange/auth/gen/go/interchange/auth/v1"
+	"github.com/darmawan01/interchange/binding/rest"
+	"github.com/darmawan01/interchange/binding/rest/openapi"
 	"github.com/darmawan01/interchange/binding/rpc"
 	"github.com/darmawan01/interchange/engine"
 	"github.com/darmawan01/interchange/errors"
+	catalogv1 "github.com/darmawan01/interchange/examples/catalog/gen/go/catalog/v1"
 	catalogv1bus "github.com/darmawan01/interchange/examples/catalog/gen/go/catalog/v1/catalogv1bus"
 	"github.com/darmawan01/interchange/validate"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // Roles is the example's RBAC table. Every atom in it is one the contract
@@ -43,15 +47,15 @@ const (
 // Credentials is the stock authenticator's table.
 func Credentials() *auth.TokenAuthenticator {
 	return auth.NewTokenAuthenticator(map[string]*auth.Principal{
-		TokenReader:        {Subject: "user:reader", AuthType: authv1.AuthType_AUTH_TYPE_SESSION, Roles: []string{"reader"}, Tenants: []string{"acme"}},
-		TokenWriter:        {Subject: "user:writer", AuthType: authv1.AuthType_AUTH_TYPE_SESSION, Roles: []string{"writer"}, Tenants: []string{"acme"}},
-		TokenOtherTenant:   {Subject: "user:globex", AuthType: authv1.AuthType_AUTH_TYPE_SESSION, Roles: []string{"writer"}, Tenants: []string{"globex"}},
-		KeyBrowserAPI:      {Subject: "key:acme-dashboard", AuthType: authv1.AuthType_AUTH_TYPE_API_KEY, Roles: []string{"reader"}, Tenants: []string{"acme"}},
-		KeyReadOnlyWorload: {Subject: "svc:indexer", AuthType: authv1.AuthType_AUTH_TYPE_WORKLOAD, Roles: []string{"reader"}, Tenants: []string{"acme"}},
-		KeySyncWorkload:    {Subject: "svc:syncer", AuthType: authv1.AuthType_AUTH_TYPE_WORKLOAD, Roles: []string{"syncer"}, Tenants: []string{"acme"}},
+		TokenReader:        {Subject: "user:reader", AuthType: auth.AuthTypeSession, Roles: []string{"reader"}, Tenants: []string{"acme"}},
+		TokenWriter:        {Subject: "user:writer", AuthType: auth.AuthTypeSession, Roles: []string{"writer"}, Tenants: []string{"acme"}},
+		TokenOtherTenant:   {Subject: "user:globex", AuthType: auth.AuthTypeSession, Roles: []string{"writer"}, Tenants: []string{"globex"}},
+		KeyBrowserAPI:      {Subject: "key:acme-dashboard", AuthType: auth.AuthTypeAPIKey, Roles: []string{"reader"}, Tenants: []string{"acme"}},
+		KeyReadOnlyWorload: {Subject: "svc:indexer", AuthType: auth.AuthTypeWorkload, Roles: []string{"reader"}, Tenants: []string{"acme"}},
+		KeySyncWorkload:    {Subject: "svc:syncer", AuthType: auth.AuthTypeWorkload, Roles: []string{"syncer"}, Tenants: []string{"acme"}},
 		// No tenants: Reconcile is platform: true, so it is not tenant-scoped
 		// and the scoper is never asked.
-		KeyPlatform: {Subject: "svc:reconciler", AuthType: authv1.AuthType_AUTH_TYPE_WORKLOAD, Roles: []string{"platform"}},
+		KeyPlatform: {Subject: "svc:reconciler", AuthType: auth.AuthTypeWorkload, Roles: []string{"platform"}},
 	})
 }
 
@@ -157,9 +161,13 @@ type Service struct {
 	Registry *interchange.Registry
 	Chain    *interchange.ChainSpec
 
-	// RPC is the Connect-over-HTTP binding. Serve RPC.Handler() wherever you
-	// serve HTTP handlers.
+	// RPC is the Connect-over-HTTP binding: POST /catalog.v1.CatalogService/*.
 	RPC *rpc.Binding
+
+	// REST is the partner-facing surface, transcoded from the same registry:
+	// GET /v1/catalog/providers. There is no second contract, no second
+	// router and no hand-written handler behind it.
+	REST *rest.Binding
 
 	busses []*engine.Server
 }
@@ -180,13 +188,44 @@ func Wire(impl catalogv1bus.CatalogServiceHandler, chain *interchange.ChainSpec)
 		return nil, fmt.Errorf("catalog: mount rpc: %w", err)
 	}
 
-	// A rest.Binding would be mounted here, over the same registry and with
-	// no second Register call. binding/rest is still empty as of this commit
-	// (module, no Go files), so there is nothing to mount yet -- and the
-	// (transports) annotation already names TRANSPORT_REST on four of the
-	// five RPCs, so adding it is a mount, not a contract change.
+	// The second HTTP road, over the same registry and with no second
+	// Register call. Which methods it serves was decided in the .proto: the
+	// three that name TRANSPORT_REST and carry a google.api.http rule.
+	restBinding := rest.New(reg)
+	if err := restBinding.Mount(catalogv1bus.NewCatalogServiceDesc()); err != nil {
+		return nil, fmt.Errorf("catalog: mount rest: %w", err)
+	}
 
-	return &Service{Registry: reg, Chain: chain, RPC: binding}, nil
+	return &Service{Registry: reg, Chain: chain, RPC: binding, REST: restBinding}, nil
+}
+
+// Handler routes the two HTTP roads onto one listener: /v1/ is the partner
+// surface, everything else is the Connect procedure path.
+//
+// They are kept apart deliberately. The transcoder also answers Connect on
+// the procedure path, but with this surface's snake_case casing -- so a
+// browser client that wandered onto it would get a different spelling of the
+// same message. One prefix per audience.
+func (s *Service) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/v1/", s.REST.Handler())
+	mux.Handle("/", s.RPC.Handler())
+	return mux
+}
+
+// OpenAPI is the partner-facing document, emitted from the same descriptors
+// the REST binding routes on. A method that did not declare the road, and one
+// marked internal, is absent from both -- which is the only thing standing
+// between a partner and an internal RPC.
+func OpenAPI(servers ...string) ([]byte, error) {
+	return openapi.FromFiles(
+		[]protoreflect.FileDescriptor{catalogv1.File_catalog_v1_catalog_proto},
+		openapi.Options{
+			Title:       "Catalog API",
+			Version:     "1.0.0",
+			Description: "Providers registered to a tenant.",
+			Servers:     servers,
+		})
 }
 
 // ServeBus mounts the same registry on a broker. The driver is the only thing

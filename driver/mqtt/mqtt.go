@@ -43,12 +43,6 @@ const (
 	defaultMaxPayload = 256 << 10
 	packetHeadroom    = 1 << 10 // topic + properties, subtracted from the broker's ceiling
 	connectTimeout    = 10 * time.Second
-
-	// brokerWait bounds the two waits the driver makes on its own account:
-	// Inbound.Reply and Unsubscribe carry no caller context, and a QoS 1
-	// publish that never sees its PUBACK would otherwise block the engine's
-	// shutdown for as long as the broker stays silent.
-	brokerWait = 30 * time.Second
 )
 
 // Config is the driver's configuration. The factory registered as "mqtt"
@@ -254,9 +248,10 @@ func (d *Driver) Subscribe(ctx context.Context, pattern, group string, fn func(i
 		d.mu.Lock()
 		delete(d.subs, id)
 		d.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), brokerWait)
-		defer cancel()
-		_, err := d.cli.Unsubscribe(ctx, &paho.Unsubscribe{Topics: []string{topic}})
+		// interchange.Unsubscribe carries no context, and none is invented
+		// here: paho bounds every packet wait with its PacketTimeout, so a
+		// silent broker fails this rather than hanging shutdown behind it.
+		_, err := d.cli.Unsubscribe(context.Background(), &paho.Unsubscribe{Topics: []string{topic}})
 		return err
 	}, nil
 }
@@ -266,6 +261,8 @@ func (d *Driver) Subscribe(ctx context.Context, pattern, group string, fn func(i
 // goroutines, and acknowledging in order is cheaper than a goroutine per
 // frame.
 func (d *Driver) route(p paho.PublishReceived) (bool, error) {
+	// One PUBACK per packet even if two subscriptions match the topic and
+	// both report an outcome.
 	var once sync.Once
 	done := func(err error) {
 		once.Do(func() {
@@ -313,13 +310,9 @@ func (d *Driver) route(p paho.PublishReceived) (bool, error) {
 	for _, s := range targets {
 		s.fn(in)
 	}
-	if len(targets) == 0 || p.Packet.Topic == d.inbox {
-		// Nothing else will call Done here. An unroutable packet has no
-		// handler to finish, and redelivering it would loop forever. A reply
-		// is finished the moment fn returns, because the engine matches it to
-		// its pending call synchronously -- and it acknowledges only the
-		// reassembled kind, so an unchunked reply would otherwise stall the
-		// in-order ack queue behind it.
+	if len(targets) == 0 {
+		// Nobody will call Done for a packet no subscription matched: there
+		// is no handler to finish it, and redelivering it would loop forever.
 		done(nil)
 	}
 	return len(targets) > 0, nil

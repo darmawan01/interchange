@@ -36,11 +36,12 @@ type input struct {
 }
 
 type plugin struct {
-	Remote   string   `yaml:"remote,omitempty"`
-	Local    string   `yaml:"local,omitempty"`
-	Out      string   `yaml:"out"`
-	Opt      []string `yaml:"opt,omitempty"`
-	Strategy string   `yaml:"strategy,omitempty"`
+	Remote         string   `yaml:"remote,omitempty"`
+	Local          string   `yaml:"local,omitempty"`
+	Out            string   `yaml:"out"`
+	Opt            []string `yaml:"opt,omitempty"`
+	Strategy       string   `yaml:"strategy,omitempty"`
+	IncludeImports bool     `yaml:"include_imports,omitempty"`
 }
 
 // Options tunes the synthesized template.
@@ -67,7 +68,7 @@ func Build(c *config.Config, o Options) ([]byte, error) {
 		if len(o.Only) > 0 && !contains(o.Only, g.Plugin) {
 			continue
 		}
-		p := plugin{Out: relocate(g.Out, o.OutPrefix), Opt: g.Opt, Strategy: g.Strategy}
+		p := plugin{Out: relocate(g.Out, o.OutPrefix), Opt: g.Opt, Strategy: g.Strategy, IncludeImports: g.IncludeImports}
 		if g.Local() {
 			p.Local = g.Plugin
 		} else {

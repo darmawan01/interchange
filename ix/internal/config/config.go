@@ -78,6 +78,14 @@ type Generate struct {
 	Out      string   `yaml:"out"`
 	Opt      []string `yaml:"opt,omitempty"`
 	Strategy string   `yaml:"strategy,omitempty"`
+
+	// IncludeImports emits code for the input's dependencies as well as the
+	// input itself. A generator whose output names its imports' descriptors
+	// at runtime -- protobuf-es does -- produces something that will not
+	// typecheck without it. Without this field such a generator has to be
+	// kept out of interchange.yaml entirely, and its output then sits outside
+	// the drift gate, which is the one place output must never sit.
+	IncludeImports bool `yaml:"include_imports,omitempty"`
 }
 
 // Local reports whether this generator is a local binary rather than a remote

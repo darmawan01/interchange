@@ -194,15 +194,33 @@ func checkFile(fd protoreflect.FileDescriptor, o Options) []Finding {
 	return fs
 }
 
+// publicRoads are the transports whose bindings serve callers outside the
+// deployment. A bus, an MQTT topic tree and a socket are wired by whoever runs
+// the service; an HTTP surface is reachable by whoever can route to it.
+func publicRoads(m *annot.Method) []string {
+	var out []string
+	for _, road := range []string{"rpc", "rest"} {
+		if m.ExposedOn(road) {
+			out = append(out, road)
+		}
+	}
+	return out
+}
+
 func checkMethod(md protoreflect.MethodDescriptor, o Options) []Finding {
 	var fs []Finding
 	m := annot.ForMethod(md, o.ConfigDefault)
 
-	if m.Internal && (m.ExposedOn("rest") || m.ExposedOn("bus") || m.ExposedOn("mqtt") || m.ExposedOn("ws")) {
+	// (internal) means every PUBLIC binding skips it -- which is what the RPC
+	// and REST bindings do. It does not mean unreachable: internal + bus is
+	// precisely how an RPC is made reachable service-to-service and nowhere
+	// else, and the engine subscribes it deliberately. Flagging that
+	// combination would forbid the one thing the annotation is for.
+	if public := publicRoads(m); m.Internal && len(public) > 0 {
 		fs = append(fs, Finding{
 			Pos: image.Pos(md), Rule: "INTERNAL_EXPOSED", Severity: Error,
-			Message: fmt.Sprintf("%s sets (internal) but declares %s -- (internal) means every public binding skips it, so the two annotations contradict each other",
-				md.Name(), strings.Join(m.Transports, ", ")),
+			Message: fmt.Sprintf("%s sets (internal) but declares %s -- a public binding skips an internal method, so the two annotations contradict each other",
+				md.Name(), strings.Join(public, ", ")),
 		})
 	}
 	if m.ExposedOn("rest") && m.HTTPPath == "" {

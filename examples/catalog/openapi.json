@@ -1,0 +1,255 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Catalog API",
+    "version": "1.0.0",
+    "description": "Providers registered to a tenant."
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com"
+    }
+  ],
+  "paths": {
+    "/v1/catalog/providers": {
+      "get": {
+        "operationId": "CatalogService_ListProviders",
+        "tags": [
+          "CatalogService"
+        ],
+        "parameters": [
+          {
+            "name": "page.page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page.page_token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/catalog.v1.ListProvidersResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "CatalogService_CreateProvider",
+        "tags": [
+          "CatalogService"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/catalog.v1.CreateProviderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/catalog.v1.CreateProviderResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/catalog/providers/{provider_id}": {
+      "get": {
+        "operationId": "CatalogService_GetProvider",
+        "tags": [
+          "CatalogService"
+        ],
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/catalog.v1.GetProviderResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "catalog.v1.CreateProviderRequest": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "catalog.v1.CreateProviderResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/catalog.v1.Provider"
+          }
+        }
+      },
+      "catalog.v1.GetProviderResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/catalog.v1.Provider"
+          }
+        }
+      },
+      "catalog.v1.ListProvidersResponse": {
+        "type": "object",
+        "properties": {
+          "next_page_token": {
+            "type": "string"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/catalog.v1.Provider"
+            }
+          }
+        }
+      },
+      "catalog.v1.Provider": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROVIDER_STATUS_UNSPECIFIED",
+              "PROVIDER_STATUS_ACTIVE",
+              "PROVIDER_STATUS_SUSPENDED"
+            ]
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "interchange.common.v1.Problem": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

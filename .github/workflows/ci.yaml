@@ -24,6 +24,11 @@ jobs:
       - uses: bufbuild/buf-action@v1
         with:
           setup_only: true
+          # Remote plugins are rate limited per IP, and shared CI runners
+          # exhaust that quota routinely. ix backs off and retries, but a
+          # token is what makes generation reliable rather than merely
+          # usually fine. Optional: without it the retries carry the build.
+          token: ${{ secrets.BUF_TOKEN }}
 
       # The dependency rule, asserted before anything else: if core has grown
       # a broker client, a router or a policy engine, nothing below matters.

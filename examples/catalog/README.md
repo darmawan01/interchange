@@ -5,10 +5,16 @@ this directory small.
 
 ```
 go test ./...                       # the acceptance suite, including a real in-process NATS broker
+ix generate && ix verify            # the drift gate, driven from interchange.yaml
 go run ./cmd/catalogd --nats nats://localhost:4222
 go run ./cmd/catalogctl catalog providers --tenant-id acme --token reader-token
+curl -H "Authorization: Bearer reader-token" \
+  localhost:8080/v1/catalog/providers?tenant_id=acme          # the partner surface
 npm --prefix . ci && npm --prefix . run typecheck    # the front end's types come from the contract
 ```
+
+Four roads out of one registry: Connect over HTTP, REST over the same listener under `/v1/`, and
+the message engine over an in-process bus or over NATS. `wire.go` registers the service **once**.
 
 ## What an adopter writes
 
@@ -40,6 +46,11 @@ fails on a diff.
 | `gen/go/catalog/v1/catalogv1cli/` | `tools/cmd/protoc-gen-cli` | the Cobra tree, built with `require_annotation=true` |
 | `gen/go/authz/permissions.authz.go` | `auth/cmd/protoc-gen-authz` | the sorted procedure → permission table, built with `known_atoms` |
 | `gen/ts/**` | `buf.build/bufbuild/es` | the front end's types and the `CatalogService` descriptor |
+
+`openapi.json` is emitted separately, by `catalog.OpenAPI()` over `binding/rest/openapi`, and is
+committed with a drift gate of its own in `TestTheEmittedOpenAPIMatchesWhatPartnersCall`. It is a
+partner-facing artifact: a path that changes should be visible in a diff before it is visible in
+someone else's logs.
 
 **There is no `connectrpc/es` plugin in the template.** Connect-ES v2 removed its code generator:
 protobuf-es v2 emits the service descriptor into `catalog_pb.ts` and `createClient(CatalogService,
@@ -81,9 +92,10 @@ panic), and `validate` sits before `authz` rather than after (per `validate/READ
 ## The acceptance tests
 
 Every test in [`acceptance_test.go`](acceptance_test.go) is named after the BUILD-PLAN exit
-criterion it closes, with the criterion's exact wording quoted above it. Three roads share one
+criterion it closes, with the criterion's exact wording quoted above it. Four roads share one
 registry throughout: the Connect binding over `httptest` driven by the **generated** Connect client,
-the in-process memory bus, and a **real NATS broker started inside the test binary** — no docker.
+the REST binding transcoded off the same registry, the in-process memory bus, and a **real NATS
+broker started inside the test binary** — no docker.
 
 | Test | BUILD-PLAN criterion | Phase |
 | --- | --- | --- |
@@ -96,6 +108,9 @@ the in-process memory bus, and a **real NATS broker started inside the test bina
 | `TestTheInterceptorChainCameAlongUnchanged` | "One low-risk service-to-service call, already on HTTP, is moved to the bus." + "**The interceptor chain came along unchanged.**" | 4 |
 | `TestSameProcedureStringInAuthzCheckMetricsLabelsAndTraceSpanOnBothRoads` | "The same procedure string appears in the authz check, the metrics labels and the trace span on both roads." | 4 |
 | `TestAuthorizationFiresOnTheBusCall` | "Authorization demonstrably fires on the bus call." | 4 |
+| `TestAnExistingRESTConsumerIsServedByTheTranscoder` | "An existing REST consumer is served by the transcoder." + "Old hand-written handlers are **deleted** as each path is covered" | 3 |
+| `TestPerSurfaceJSONCasingCamelCaseOnRPCSnakeCaseOnREST` | "Per-surface JSON casing, written down: camelCase on RPC, snake_case on REST." | 3 |
+| `TestTheEmittedOpenAPIMatchesWhatPartnersCall` | "The emitted OpenAPI matches what partners already call, or the migration is explicitly versioned." | 3 |
 | `TestTheTransportsAnnotationIsLoadBearing` | cross-phase: the `(transports)` and `(internal)` annotations decide reachability, or they are decoration | — |
 | `TestEveryReasonThisServiceRaisesIsDeclared` | cross-phase: one closed taxonomy, one reason string on every road | — |
 
@@ -105,7 +120,7 @@ Three of those need a note.
 That one *replaces* each real stage with a probe, which is right for core (it has nothing to
 protect) and wrong here: replacing `authz` would mean the authorization this suite is about never
 fires. Instead a probe is inserted *in front of* every real stage by anchor, plus one innermost, and
-the recorded probe sequence is compared across all three roads. The test also asserts the chain is
+the recorded probe sequence is compared across all four roads. The test also asserts the chain is
 the seven-stage one `wire.go` composes, so it cannot pass vacuously the day someone empties it — an
 empty chain is trivially identical everywhere.
 
@@ -118,9 +133,16 @@ and the same handler in a fresh registry and serves it over HTTP and NATS with n
 anywhere.
 
 **`Reconcile` is reachable on the bus, by design.** `(internal) = true` keeps it off every *public*
-binding — `rpc.Binding.Mount` skips it — while the engine still subscribes it, because that is what
-"internal" means and not one word more. The test asserts it is refused over HTTP and served over
-NATS to a platform workload.
+binding — `rpc.Binding.Mount` and `rest.Binding.Mount` both skip it, and it is absent from
+`openapi.json` — while the engine still subscribes it, because that is what "internal" means and
+not one word more. The test asserts it is refused on both HTTP roads and served over NATS to a
+platform workload. **`ix lint` disagrees**; see below.
+
+**The REST road gets its own listener in one subtest.** The transcoder also answers the Connect
+protocol on the procedure path, so `TestTheTransportsAnnotationIsLoadBearing` mounts `svc.REST`
+alone and POSTs `SyncProvider` and `Reconcile` at it: both `404`, while `ListProviders` at the same
+listener answers `200`. That is the method-set filter being load-bearing rather than the listener
+being broken.
 
 ## Credentials in the example
 
@@ -137,11 +159,51 @@ service behind the same `auth.Authenticator`; swapping it changes nothing else.
 | `workload-sync-key` (`x-api-key`) | workload | acme | `providers.read`, `.edit` |
 | `workload-plat-key` (`x-api-key`) | workload | cross-tenant | `providers.*` |
 
+## `interchange.yaml` and `ix`
+
+`interchange.yaml` declares every generator the project runs, and `ix` synthesizes its own buf
+template from it. It is the source of truth; `buf.gen.catalog.yaml` at the repo root is the
+repo-wide convention (`buf.gen.core.yaml`, `buf.gen.auth.yaml`, …) and says the same thing plus the
+TypeScript target.
+
+Verified end to end against this directory:
+
+| Command | Result |
+| --- | --- |
+| `ix generate` | reproduces the committed `gen/go` tree **byte for byte** — the synthesized template is `buf.gen.catalog.yaml` minus the TS plugin |
+| `ix describe CatalogService.ListProviders` | prints the four roads, the REST URI, the queue group, the permission atom, the tenant field and the CLI path |
+| `ix verify` | ✓ on a clean tree; mutate one byte of `gen/go/authz/permissions.authz.go` and it fails with `gen/go/authz/permissions.authz.go differs`. It is a real gate. |
+| `ix lint` | **1 error**, and the error is wrong — see below |
+| `ix doctor` | ✓ except `buf.yaml missing`: the buf workspace root is the repo root, not this directory |
+
+Three findings for the lead, none of them worked around here:
+
+1. **`ix lint`'s `INTERNAL_EXPOSED` rule contradicts the runtime.** It errors on any method that is
+   `(internal)` and declares `rest`, `bus`, `mqtt` or `ws`
+   (`ix/internal/lint/lint.go:201`). But a bus is not a public binding: `rpc.Binding.Mount` and
+   `rest.Binding.Mount` skip `Internal`, and `engine.Server.Plan` deliberately does not. `internal`
+   + `bus` is precisely how an RPC is made reachable service-to-service and unreachable everywhere
+   else — which is what `Reconcile` declares, what the design docs describe, and what
+   `TestTheTransportsAnnotationIsLoadBearing` asserts on a running NATS broker. The rule as written
+   fails CI on a correct contract. Either it should exempt `bus`, or the engine should skip
+   internal methods and the docs are wrong; the tests here say the rule is.
+2. **`interchange.yaml` cannot express buf's per-plugin `include_imports`**, so `gen/ts` is not
+   under `ix`'s gate. A protobuf-es file names its imports' descriptors at runtime, so the
+   annotation protos must be emitted alongside it or the front end does not typecheck —
+   `gentmpl.plugin` carries only `remote`/`local`/`out`/`opt`/`strategy`
+   (`ix/internal/gentmpl/gentmpl.go`). The TypeScript generator is therefore in
+   `buf.gen.catalog.yaml` and **not** in `interchange.yaml`: listing it there would make
+   `ix verify` report every dependency `_pb.ts` as "no longer generated". One field on `Generate`
+   closes this.
+3. **`ix doctor` looks for `buf.yaml` beside `interchange.yaml`.** In a repo where the buf
+   workspace is above the project root — which is this repo — that is a false negative.
+   `ix generate` and `ix verify` are unaffected: buf walks up and finds the workspace.
+
+Cosmetic: `ix verify` lists a differing file once per output directory that contains it, so
+`gen/go` and `gen/go/authz` both report `permissions.authz.go differs`.
+
 ## Not here yet
 
-- **REST.** `binding/rest` is a `go.mod` and a test fixture with no Go files as of this commit, so
-  there is nothing to mount. `wire.go` marks the spot; four of the five RPCs already declare
-  `TRANSPORT_REST` and carry `google.api.http`, so landing it is a mount and not a contract change.
 - **A reason enum in the contract.** `catalog.Reasons()` uses `errors.SetOf`, the escape hatch. A
   real service declares `enum CatalogReason` in its own `.proto` and passes
   `errors.EnumSet(...)`, which is what lets the TypeScript client enumerate the same list.
