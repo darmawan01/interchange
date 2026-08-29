@@ -199,39 +199,46 @@ func (s *Server) stopLocked() error {
 }
 
 func (s *Server) handle(in interchange.Inbound) {
+	// Acknowledgement is deferred to the end of the call, not the end of
+	// delivery: a driver that acks on arrival has told the broker a message
+	// was handled while the handler has not started.
+	acks := []func(error){in.Done}
+
 	kind, body, err := unframe(in.Body)
 	if err != nil {
-		s.cfg.logger.Warn("engine: dropping malformed message", slog.String("err", err.Error()))
+		s.drop(acks, err, "malformed message")
 		return
 	}
 	if kind == kindFrame {
 		var f transportv1.Frame
 		if err := proto.Unmarshal(body, &f); err != nil {
-			s.cfg.logger.Warn("engine: dropping malformed frame", slog.String("err", err.Error()))
+			s.drop(acks, err, "malformed frame")
 			return
 		}
-		whole, err := s.reasm.accept(&f)
+		whole, held, err := s.reasm.accept(&f, in.Done)
 		if err != nil {
-			s.cfg.logger.Warn("engine: dropping oversized message",
-				slog.String("correlation_id", f.GetCorrelationId()), slog.String("err", err.Error()))
+			s.drop(held, err, "oversized message")
 			return
 		}
 		if whole == nil {
+			// Held: the frame is buffered and stays unacknowledged until the
+			// whole message has been handled.
 			return
 		}
+		acks = held
 		if kind, body, err = unframe(whole); err != nil {
-			s.cfg.logger.Warn("engine: dropping malformed reassembly", slog.String("err", err.Error()))
+			s.drop(acks, err, "malformed reassembly")
 			return
 		}
 	}
 	if kind != kindRequest {
-		s.cfg.logger.Warn("engine: dropping non-request on a server subscription")
+		s.drop(acks, errors.New("engine: not a request"), "non-request on a server subscription")
 		return
 	}
 
 	var req transportv1.Request
 	if err := proto.Unmarshal(body, &req); err != nil {
-		s.cfg.logger.Warn("engine: dropping undecodable request", slog.String("err", err.Error()))
+		s.drop(acks, err, "undecodable request")
 		return
 	}
 
@@ -242,11 +249,27 @@ func (s *Server) handle(in interchange.Inbound) {
 			s.sem <- struct{}{}
 			defer func() { <-s.sem }()
 		}
-		s.serve(&req, in)
+		ackAll(acks, s.serve(&req, in))
 	}()
 }
 
-func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) {
+func (s *Server) drop(acks []func(error), err error, what string) {
+	s.cfg.logger.Warn("engine: dropping "+what, slog.String("err", err.Error()))
+	ackAll(acks, err)
+}
+
+// ackAll reports one outcome to every frame the message arrived in. A driver
+// whose transport has no acknowledgement leaves Done nil and none of this
+// costs anything.
+func ackAll(acks []func(error), err error) {
+	for _, done := range acks {
+		if done != nil {
+			done(err)
+		}
+	}
+}
+
+func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) error {
 	// Metadata fallback: native headers where the transport has them, folded
 	// into the envelope where it does not. Above this line nothing else in
 	// the system learns which of the two happened.
@@ -263,23 +286,16 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) {
 	replyTo := md.Get(interchange.MetaReplyTo)
 	md.Del(interchange.MetaReplyTo)
 
-	reply := func(resp *transportv1.Response) {
-		if err := s.reply(in, replyTo, resp); err != nil {
-			s.cfg.logger.Warn("engine: reply failed",
-				slog.String("procedure", req.GetProcedure()),
-				slog.String("err", err.Error()))
-		}
-	}
-
 	// Replay suppression, enabled only where the transport needs it.
 	var entry *dedupeEntry
 	if s.dedupe != nil && req.GetCorrelationId() != "" {
 		e, claimed := s.dedupe.begin(req.GetCorrelationId())
 		if !claimed {
-			if cached, ok := e.wait(s.cfg.replyTimout); ok {
-				s.replayCached(in, replyTo, cached)
+			cached, ok := e.wait(s.cfg.replyTimout)
+			if !ok {
+				return errors.New("engine: a redelivery arrived while the original call was still running")
 			}
-			return
+			return s.replayCached(in, replyTo, cached)
 		}
 		entry = e
 	}
@@ -292,17 +308,25 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) {
 			s.dedupe.abandon(req.GetCorrelationId(), entry)
 		}
 	}
-	reply(resp)
+	if err := s.reply(in, replyTo, resp); err != nil {
+		s.cfg.logger.Warn("engine: reply failed",
+			slog.String("procedure", req.GetProcedure()),
+			slog.String("err", err.Error()))
+		return err
+	}
+	return nil
 }
 
-func (s *Server) replayCached(in interchange.Inbound, replyTo string, cached []byte) {
+func (s *Server) replayCached(in interchange.Inbound, replyTo string, cached []byte) error {
 	var resp transportv1.Response
 	if err := proto.Unmarshal(cached, &resp); err != nil {
-		return
+		return err
 	}
 	if err := s.reply(in, replyTo, &resp); err != nil {
 		s.cfg.logger.Warn("engine: replayed reply failed", slog.String("err", err.Error()))
+		return err
 	}
+	return nil
 }
 
 func (s *Server) dispatch(req *transportv1.Request, md interchange.Metadata) *transportv1.Response {

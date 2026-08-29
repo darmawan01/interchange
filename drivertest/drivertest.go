@@ -59,8 +59,10 @@ func start(t *testing.T, newPair Factory, impl *testsvc.Impl, opts ...engine.Cli
 	if err := reg.Register(testsvc.Desc(), impl, interchange.DefaultChain(interchange.Config{})); err != nil {
 		t.Fatal(err)
 	}
-	srv := engine.NewServer(pair.Server, reg)
+	srv := engine.NewServer(pair.Server, reg, engine.Expose(pair.Server.Caps().Transport))
 	if err := srv.Start(context.Background()); err != nil {
+		// A driver whose declared Transport routes nothing fails here, which
+		// is the point: Capabilities.Transport is a claim the engine acts on.
 		t.Fatalf("start server: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Stop() })
@@ -164,7 +166,7 @@ func testMetadata(t *testing.T, newPair Factory) {
 	if err := reg.Register(testsvc.Desc(), impl, chain); err != nil {
 		t.Fatal(err)
 	}
-	srv := engine.NewServer(pair.Server, reg)
+	srv := engine.NewServer(pair.Server, reg, engine.Expose(pair.Server.Caps().Transport))
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

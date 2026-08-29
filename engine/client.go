@@ -184,6 +184,11 @@ func (c *Client) Do(ctx context.Context, req *transportv1.Request) (*transportv1
 	hdr := map[string]string{}
 	if c.caps.NativeHeaders {
 		hdr = md.AsMap()
+		// The correlation id is inside the opaque body, and a driver may not
+		// parse that. Surfacing it in the header is what lets a driver use
+		// its transport's native correlation facility -- MQTT 5 Correlation
+		// Data, say -- so a plain MQTT client can talk to us.
+		hdr[interchange.MetaCorrelationID] = req.GetCorrelationId()
 		req.Metadata = nil
 	} else {
 		req.Metadata = md.AsMap()
@@ -245,10 +250,15 @@ func (c *Client) onReply(in interchange.Inbound) {
 		if err := proto.Unmarshal(body, &f); err != nil {
 			return
 		}
-		whole, err := c.reasm.accept(&f)
-		if err != nil || whole == nil {
+		whole, acks, err := c.reasm.accept(&f, in.Done)
+		if err != nil {
+			ackAll(acks, err)
 			return
 		}
+		if whole == nil {
+			return
+		}
+		ackAll(acks, nil)
 		if kind, body, err = unframe(whole); err != nil {
 			return
 		}

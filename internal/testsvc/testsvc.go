@@ -33,10 +33,14 @@ func newProblem() proto.Message { return &commonv1.Problem{} }
 
 // Desc returns the service descriptor as generated code would emit it.
 func Desc() *interchange.ServiceDesc {
+	// Every road, so that drivertest can run this service over any driver --
+	// a suite that only works for one transport is not a conformance suite.
 	all := []transportv1.Transport{
 		transportv1.Transport_TRANSPORT_RPC,
 		transportv1.Transport_TRANSPORT_REST,
 		transportv1.Transport_TRANSPORT_BUS,
+		transportv1.Transport_TRANSPORT_MQTT,
+		transportv1.Transport_TRANSPORT_WS,
 	}
 	return &interchange.ServiceDesc{
 		Name: Service,

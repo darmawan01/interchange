@@ -8,10 +8,15 @@ import (
 )
 
 type partial struct {
-	chunks   map[uint64][]byte
-	total    uint64 // sequence of the KIND_END frame; 0 means not seen yet
-	haveEnd  bool
-	size     int
+	chunks  map[uint64][]byte
+	total   uint64 // sequence of the KIND_END frame; 0 means not seen yet
+	haveEnd bool
+	size    int
+
+	// acks are the per-frame Done callbacks, held until the whole message is
+	// handled. Acking a chunk on arrival would tell the broker a message was
+	// processed while it is still half a message sitting in memory.
+	acks     []func(error)
 	deadline time.Time
 }
 
@@ -37,9 +42,11 @@ func newReassembler(ttl time.Duration, max int) *reassembler {
 	return &reassembler{m: map[string]*partial{}, ttl: ttl, max: max, now: time.Now}
 }
 
-// accept feeds one frame in. It returns the reassembled body once the message
-// is complete, or nil while it is still incomplete.
-func (r *reassembler) accept(f *transportv1.Frame) ([]byte, error) {
+// accept feeds one frame in, with the transport's acknowledgement callback
+// for that frame. It returns the reassembled body once the message is
+// complete, together with every held acknowledgement, or a nil body while the
+// message is still incomplete.
+func (r *reassembler) accept(f *transportv1.Frame, done func(error)) ([]byte, []func(error), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sweepLocked()
@@ -54,46 +61,75 @@ func (r *reassembler) accept(f *transportv1.Frame) ([]byte, error) {
 	case transportv1.Frame_KIND_END:
 		p.haveEnd = true
 		p.total = f.GetSequence()
+		p.hold(done)
 	case transportv1.Frame_KIND_MESSAGE:
 		if _, dup := p.chunks[f.GetSequence()]; dup {
-			// Replay. The receiver never sees it twice.
-			return nil, nil
+			// Replay. The receiver never sees it twice, and the duplicate is
+			// acknowledged immediately: it is already accounted for.
+			return nil, ack(done), nil
 		}
 		p.size += len(f.GetPayload())
 		if r.max > 0 && p.size > r.max {
 			delete(r.m, f.GetCorrelationId())
-			return nil, errTooLarge{size: p.size, max: r.max}
+			return nil, append(p.acks, done), errTooLarge{size: p.size, max: r.max}
 		}
 		p.chunks[f.GetSequence()] = f.GetPayload()
+		p.hold(done)
 	default:
 		// KIND_ERROR and KIND_UNSPECIFIED carry no body to reassemble.
 		delete(r.m, f.GetCorrelationId())
-		return nil, nil
+		return nil, append(p.acks, done), nil
 	}
 
 	if !p.haveEnd || uint64(len(p.chunks)) != p.total {
-		return nil, nil
+		return nil, nil, nil
 	}
 	out := make([]byte, 0, p.size)
 	for i := uint64(0); i < p.total; i++ {
-		c, ok := p.chunks[i]
-		if !ok {
+		if _, ok := p.chunks[i]; !ok {
 			// A gap with the end already seen: wait for the redelivery.
-			return nil, nil
+			return nil, nil, nil
 		}
-		out = append(out, c...)
+	}
+	for i := uint64(0); i < p.total; i++ {
+		out = append(out, p.chunks[i]...)
 	}
 	delete(r.m, f.GetCorrelationId())
-	return out, nil
+	return out, p.acks, nil
+}
+
+func (p *partial) hold(done func(error)) {
+	if done != nil {
+		p.acks = append(p.acks, done)
+	}
+}
+
+func ack(done func(error)) []func(error) {
+	if done == nil {
+		return nil
+	}
+	return []func(error){done}
 }
 
 func (r *reassembler) sweepLocked() {
 	now := r.now()
 	for k, p := range r.m {
-		if now.After(p.deadline) {
-			delete(r.m, k)
+		if !now.After(p.deadline) {
+			continue
+		}
+		delete(r.m, k)
+		// A message that never completed was never handled. Say so, so a
+		// transport that can redeliver does.
+		for _, done := range p.acks {
+			done(errIncomplete{correlationID: k})
 		}
 	}
+}
+
+type errIncomplete struct{ correlationID string }
+
+func (e errIncomplete) Error() string {
+	return "engine: chunked message " + e.correlationID + " expired before every frame arrived"
 }
 
 func (r *reassembler) pending() int {

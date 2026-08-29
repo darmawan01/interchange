@@ -22,6 +22,22 @@ type Inbound struct {
 	// Reply is nil when Caps().NativeReply is false. The engine then falls
 	// back to publishing to the address in the envelope's metadata.
 	Reply func(body []byte, hdr map[string]string) error
+
+	// Done, when non-nil, reports the outcome of this message back to the
+	// transport, exactly once, after the call has been handled and its reply
+	// sent. A driver over a broker with explicit acknowledgement wires it to
+	// the ack.
+	//
+	// It exists because acking on delivery and acking on completion are
+	// different guarantees, and only the second one is worth calling
+	// at-least-once: a handler that crashes half way through a message the
+	// broker already considers delivered is work that silently vanishes.
+	// Replay suppression dedupes a redelivery; it cannot conjure one.
+	//
+	// Done(nil) means the message was handled. Done(err) means it was not,
+	// and the driver may redeliver it if the transport can. A driver whose
+	// transport has no acknowledgement leaves this nil.
+	Done func(err error)
 }
 
 // Capabilities is what a driver declares about its transport. The engine

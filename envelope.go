@@ -66,6 +66,11 @@ const (
 
 	// MetaCodec names the codec of a chunked payload's reassembled body.
 	MetaCodec = "ix-codec"
+
+	// MetaCorrelationID mirrors the envelope's correlation id into the
+	// metadata map, so a driver can populate its transport's native
+	// correlation facility without parsing the opaque body.
+	MetaCorrelationID = "ix-correlation-id"
 )
 
 // Envelope is what the interceptor chain sees. It is deliberately NOT the
