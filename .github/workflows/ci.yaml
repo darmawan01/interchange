@@ -58,6 +58,9 @@ jobs:
       - name: verify (drift gate)
         run: make verify
 
+      # The same command `make breaking` runs locally. Two spellings of one
+      # check is how a gate starts passing in one place and failing in the
+      # other.
       - name: breaking changes
         if: github.event_name == 'pull_request'
-        run: ./bin/ix breaking --against "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }}"
+        run: make breaking BASE_REF=${{ github.base_ref }}

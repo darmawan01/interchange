@@ -58,9 +58,11 @@ lint: ix
 	buf lint
 	cd examples/catalog && ../../$(BIN)/ix lint
 
+BASE_REF ?= main
+
 .PHONY: breaking
 breaking:
-	buf breaking --against '.git#branch=main'
+	buf breaking --against '.git#branch=$(BASE_REF)'
 
 ## verify: the drift gate. Generated output is COMMITTED; this is what makes
 ## that true rather than aspirational, and it is the whole reason the contract

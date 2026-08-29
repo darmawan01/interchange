@@ -6,7 +6,7 @@ NATS, MQTT and WebSocket. The browser, the mobile app, the peer service and the 
 call the same declared method, through the same middleware, into the same handler.
 
 > **Status: built, and honest about what that means.** Working name. All six phases are
-> implemented, with 229 tests across fifteen modules; `make verify` regenerates every contract and
+> implemented, with 229 tests across thirteen modules; `make verify` regenerates every contract and
 > fails on drift. What it has not had is production traffic. See [Maturity](#maturity) before
 > planning against any part of it.
 
@@ -169,7 +169,7 @@ calling the seam right — and for treating the next one as likely to find a sev
 
 ```bash
 make plugins ix          # build the plugins and the CLI, no network needed
-make test                # 229 tests across fifteen modules
+make test                # 229 tests across thirteen modules
 make verify              # regenerate every contract and fail on drift
 ```
 
