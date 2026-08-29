@@ -1,0 +1,14 @@
+version: 1
+
+sources:
+  - path: api/**/*.proto
+    frontend: proto
+
+transports:
+  default: [rpc, rest]
+  drivers: [nats]
+
+generate:
+  - plugin: buf.build/protocolbuffers/go:v1.36.12
+    out: gen/go
+    opt: [paths=source_relative]

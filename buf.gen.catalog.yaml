@@ -1,0 +1,97 @@
+# The worked example. Everything an adopter runs, in one file: message types,
+# the Connect client, the bus/dispatch code, the CLI tree, the permission
+# table, and the TypeScript the front end imports.
+#
+# Output is COMMITTED and under the drift gate -- that is the point. `ix
+# verify` regenerates and fails on a diff, which is what makes "the contract is
+# the only place the API exists" a build failure rather than a convention.
+version: v2
+clean: true
+
+# Only the example's own module. Its imports are resolved from the workspace
+# but not regenerated: core, /auth and /tools each own their generated tree,
+# and a second copy under examples/ would be a second definition of the same
+# type.
+inputs:
+  - directory: examples/catalog/api
+
+managed:
+  enabled: true
+  disable:
+    # googleapis ships its own go_package and its generated Go is a published
+    # module. Rewriting the prefix would point the example at import paths
+    # nobody publishes.
+    - file_option: go_package
+      module: buf.build/googleapis/googleapis
+  override:
+    # One override per workspace module. Managed mode is per-module precisely
+    # so an import keeps the import path its owner generated it under: the
+    # example's files land in its own tree, and interchange/auth/v1/auth.proto
+    # still resolves to the /auth module's committed package rather than to a
+    # duplicate compiled into the example.
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/examples/catalog/gen/go
+      module: buf.build/darmawan01/catalog
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/gen/go
+      module: buf.build/darmawan01/interchange
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/auth/gen/go
+      module: buf.build/darmawan01/interchange-auth
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/tools/gen/go
+      module: buf.build/darmawan01/interchange-cli
+
+plugins:
+  # Pinned to the protobuf runtime core requires; a split pin means two
+  # descriptor runtimes in one binary.
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: examples/catalog/gen/go
+    opt: [paths=source_relative]
+
+  # The browser/CLI/SDK client. Pinned to the connect-go version core imports.
+  - remote: buf.build/connectrpc/go:v1.20.0
+    out: examples/catalog/gen/go
+    opt: [paths=source_relative]
+
+  # Local plugins, built by `make plugins` into ./bin. The ServiceDesc, the
+  # server interface and the typed bus client -- the code that makes one
+  # registration serve every road.
+  - local: bin/protoc-gen-bus
+    out: examples/catalog/gen/go
+    opt: [paths=source_relative]
+
+  # require_annotation=true because this contract is fully annotated: a new
+  # RPC that nobody thought about must fail the build rather than quietly
+  # leave a hole in the CLI.
+  - local: bin/protoc-gen-cli
+    out: examples/catalog/gen/go
+    opt: [paths=source_relative, require_annotation=true]
+
+  # The build-time half of "enforce twice". strategy: all because the table is
+  # cross-cutting -- one pass over the whole tree, one file, sorted.
+  # known_atoms closes the set: a typo mints a phantom permission that no role
+  # will ever grant, and this is where that is cheap to find.
+  - local: bin/protoc-gen-authz
+    out: examples/catalog/gen/go/authz
+    strategy: all
+    opt:
+      - package=authz
+      - import_path=github.com/darmawan01/interchange/examples/catalog/gen/go/authz
+      - on_missing_annotation=error
+      - known_atoms=providers.read+providers.create+providers.edit
+
+  # TypeScript for the front end. protobuf-es v2 emits the service descriptor
+  # into the same _pb.ts file, which is what @connectrpc/connect v2's
+  # createClient consumes -- there is no separate connect-es codegen step any
+  # more (see examples/catalog/README.md).
+  #
+  # include_imports is per plugin, and only this one wants it: a protobuf-es
+  # file names its imports' descriptors at runtime, so the annotation protos
+  # have to be emitted alongside or the front end will not typecheck. The Go
+  # plugins must NOT have it -- core, /auth and /tools already ship those types
+  # and a second registration of the same file panics at init.
+  - remote: buf.build/bufbuild/es:v2.14.0
+    out: examples/catalog/gen/ts
+    opt: [target=ts, import_extension=js]
+    include_imports: true

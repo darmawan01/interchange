@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package interchange.cli.v1;
+
+import "google/protobuf/descriptor.proto";
+
+message CommandOptions {
+  // Where the command mounts: ["catalog", "providers"] becomes
+  // `<root> catalog providers`.
+  repeated string path = 1;
+
+  // Request fields promoted to positional arguments, in order.
+  repeated string args = 2;
+
+  string short = 3;
+  string long = 4;
+
+  // Omit this RPC from the generated command tree.
+  bool skip = 5;
+}
+
+extend google.protobuf.MethodOptions {
+  // 50004 -- see docs/annotation-band.md
+  CommandOptions command = 50004;
+}

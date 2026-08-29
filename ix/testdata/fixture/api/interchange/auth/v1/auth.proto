@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package interchange.auth.v1;
+
+import "google/protobuf/descriptor.proto";
+import "interchange/auth/v1/permissions.proto";
+
+enum AuthType {
+  AUTH_TYPE_UNSPECIFIED = 0;
+  AUTH_TYPE_API_KEY = 1;
+  AUTH_TYPE_SESSION = 2;
+  AUTH_TYPE_WORKLOAD = 3;  // service-to-service identity
+}
+
+message AuthOptions {
+  // Which credential kinds are accepted. Under this module's default
+  // policy, absent OR empty is a BUILD ERROR rather than "public" --
+  // configurable, see §06. Public RPCs say so explicitly.
+  repeated AuthType auth_types = 1;
+
+  // Structured, not a free-form string, so a typo cannot mint a phantom
+  // permission and codegen can group the catalog by resource.
+  Permission permission = 2;
+
+  bool public = 3;    // explicit opt-out, greppable
+  bool platform = 4;  // cross-tenant RPC: request carries no tenant
+}
+
+extend google.protobuf.MethodOptions {
+  // 50001 -- see docs/annotation-band.md
+  AuthOptions auth = 50001;
+}
+
+// Point the interceptor at the tenant fields when a message names them
+// something other than tenant_id / project_id.
+extend google.protobuf.FieldOptions {
+  bool tenant_id_field = 50007;
+  bool project_id_field = 50008;
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+// 50005 is inside the reserved band and listed as Free in
+// docs/annotation-band.md -- no row, so `ix lint` must refuse it. This is the
+// fixture for the rule that stops the second annotation at one number, which
+// is a collision the descriptor parses happily with one option simply gone.
+package rogue.v1;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.MethodOptions {
+  bool rogue = 50005;
+}

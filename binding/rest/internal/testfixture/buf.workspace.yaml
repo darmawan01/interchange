@@ -1,0 +1,17 @@
+# The fixture's protos import interchange/transport/v1/transports.proto, which
+# lives in the repo's `api` buf module. A buf module cannot name a path outside
+# its own context directory, so the fixture cannot be a self-contained module
+# down here -- it has to be built as a workspace rooted at the repo. This file
+# is that workspace, passed to `buf build --config` so the repo's own buf.yaml
+# stays untouched.
+#
+#   buf build --config binding/rest/internal/testfixture/buf.workspace.yaml \
+#     --path binding/rest/internal/testfixture/api \
+#     -o binding/rest/internal/testfixture/testdata/fixture.binpb .
+version: v2
+modules:
+  - path: api
+    name: buf.build/darmawan01/interchange
+  - path: binding/rest/internal/testfixture/api
+deps:
+  - buf.build/googleapis/googleapis

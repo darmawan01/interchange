@@ -1,0 +1,12 @@
+{
+  "name": "catalog-example",
+  "private": true,
+  "version": "0.0.0",
+  "description": "npm workspace root for the catalog example. It exists so node_modules is reachable from gen/ts as well as from web/: the generated TypeScript imports @bufbuild/protobuf, and module resolution walks up from the importing file.",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "typecheck": "npm --workspace web run typecheck"
+  }
+}

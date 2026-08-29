@@ -1,0 +1,8 @@
+version: v2
+modules:
+  - path: api
+
+# The fixture vendors its own copies of every annotation proto, including a
+# minimal google/api/annotations.proto, so the golden tests build offline.
+# That is also why lint is not configured here: the fixture exists to be
+# described, and lint has its own fixtures.

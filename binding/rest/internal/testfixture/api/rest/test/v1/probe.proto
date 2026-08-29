@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package rest.test.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "interchange/transport/v1/transports.proto";
+
+// A probe is the smallest service worth transcoding: an id in the path, a
+// nested message in the query string, a body on create, and two methods that
+// exist only to prove the transport annotation is load-bearing.
+service ProbeService {
+  option (interchange.transport.v1.service_transports) = {
+    on: [TRANSPORT_RPC, TRANSPORT_REST]
+  };
+
+  rpc GetProbe(GetProbeRequest) returns (GetProbeResponse) {
+    option (google.api.http) = {get: "/v1/probes/{probe_id}"};
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  rpc CreateProbe(CreateProbeRequest) returns (CreateProbeResponse) {
+    option (google.api.http) = {
+      post: "/v1/probes"
+      body: "*"
+    };
+  }
+
+  // FailProbe always returns not_found, so the same error can be read off
+  // both HTTP roads and compared.
+  rpc FailProbe(FailProbeRequest) returns (FailProbeResponse) {
+    option (google.api.http) = {get: "/v1/probes/{probe_id}/failure"};
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Has an HTTP rule and is not on TRANSPORT_REST. The rule is what a
+  // gateway would route on; the transport annotation is what says no. If
+  // this answers over REST the annotation is decorative.
+  rpc RpcOnlyProbe(RpcOnlyProbeRequest) returns (RpcOnlyProbeResponse) {
+    option (google.api.http) = {get: "/v1/rpc-only/{probe_id}"};
+    option (interchange.transport.v1.transports) = {on: [TRANSPORT_RPC]};
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // PingProbe declares no google.api.http rule at all. It is here so a test
+  // can put it on the REST road and watch the binding refuse: a method that
+  // says REST and has no URI is a contract nobody can call.
+  rpc PingProbe(PingProbeRequest) returns (PingProbeResponse) {
+    option (interchange.transport.v1.transports) = {on: [TRANSPORT_RPC]};
+  }
+
+  // internal: off every public binding, and out of the emitted OpenAPI --
+  // an internal RPC in a partner-facing document is a leak.
+  rpc ReconcileProbes(ReconcileProbesRequest) returns (ReconcileProbesResponse) {
+    option (interchange.transport.v1.internal) = true;
+    option (google.api.http) = {
+      post: "/v1/reconcile"
+      body: "*"
+    };
+  }
+}
+
+enum ProbeState {
+  PROBE_STATE_UNSPECIFIED = 0;
+  PROBE_STATE_READY = 1;
+  PROBE_STATE_FAILED = 2;
+}
+
+message Probe {
+  string probe_id = 1;
+  string display_name = 2;
+  ProbeState state = 3;
+  int32 attempt_count = 4;
+  bool active = 5;
+  repeated string tags = 6;
+  map<string, string> labels = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message Page {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message GetProbeRequest {
+  string probe_id = 1;
+  Page page = 2;
+}
+
+message GetProbeResponse {
+  Probe probe = 1;
+}
+
+message CreateProbeRequest {
+  string display_name = 1;
+  repeated string tags = 2;
+}
+
+message CreateProbeResponse {
+  Probe probe = 1;
+}
+
+message FailProbeRequest {
+  string probe_id = 1;
+}
+
+message FailProbeResponse {
+  Probe probe = 1;
+}
+
+message RpcOnlyProbeRequest {
+  string probe_id = 1;
+}
+
+message RpcOnlyProbeResponse {
+  Probe probe = 1;
+}
+
+message PingProbeRequest {
+  string probe_id = 1;
+}
+
+message PingProbeResponse {
+  string probe_id = 1;
+}
+
+message ReconcileProbesRequest {
+  string tenant_id = 1;
+}
+
+message ReconcileProbesResponse {
+  int32 reconciled = 1;
+}

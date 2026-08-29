@@ -1,0 +1,19 @@
+
+  procedure   /platform.catalog.v1.CatalogService/ProviderChanged
+  request     ProviderChangedRequest  (provider_id, change)
+  response    ProviderChangedResponse (no fields)
+
+  TRANSPORTS
+    rpc       not exposed
+    rest      not exposed
+    bus       rpc.platform.catalog.v1.CatalogService.ProviderChanged
+                queue group: catalog-events · at-least-once: no · max payload: 1 MiB
+    mqtt      not exposed
+    ws        not exposed
+
+  AUTHORIZATION
+    not declared (the (auth) annotation is an optional module)
+
+  CLI          not mounted
+  idempotent   no
+

@@ -1,0 +1,265 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Probe API",
+    "version": "1.0.0",
+    "description": "The fixture service, as a partner sees it."
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com"
+    }
+  ],
+  "paths": {
+    "/v1/probes": {
+      "post": {
+        "operationId": "ProbeService_CreateProbe",
+        "tags": [
+          "ProbeService"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/rest.test.v1.CreateProbeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rest.test.v1.CreateProbeResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/probes/{probe_id}": {
+      "get": {
+        "operationId": "ProbeService_GetProbe",
+        "tags": [
+          "ProbeService"
+        ],
+        "parameters": [
+          {
+            "name": "probe_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page.page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page.page_token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rest.test.v1.GetProbeResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/probes/{probe_id}/failure": {
+      "get": {
+        "operationId": "ProbeService_FailProbe",
+        "tags": [
+          "ProbeService"
+        ],
+        "description": "FailProbe always returns not_found, so the same error can be read off\nboth HTTP roads and compared.",
+        "parameters": [
+          {
+            "name": "probe_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rest.test.v1.FailProbeResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error, as RFC 9457 problem detail.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interchange.common.v1.Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "interchange.common.v1.Problem": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "rest.test.v1.CreateProbeRequest": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "rest.test.v1.CreateProbeResponse": {
+        "type": "object",
+        "properties": {
+          "probe": {
+            "$ref": "#/components/schemas/rest.test.v1.Probe"
+          }
+        }
+      },
+      "rest.test.v1.FailProbeResponse": {
+        "type": "object",
+        "properties": {
+          "probe": {
+            "$ref": "#/components/schemas/rest.test.v1.Probe"
+          }
+        }
+      },
+      "rest.test.v1.GetProbeResponse": {
+        "type": "object",
+        "properties": {
+          "probe": {
+            "$ref": "#/components/schemas/rest.test.v1.Probe"
+          }
+        }
+      },
+      "rest.test.v1.Probe": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "probe_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PROBE_STATE_UNSPECIFIED",
+              "PROBE_STATE_READY",
+              "PROBE_STATE_FAILED"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

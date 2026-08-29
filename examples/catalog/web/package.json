@@ -1,0 +1,18 @@
+{
+  "name": "catalog-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The front end of the worked example. It imports its types from ../gen/ts, which is generated from api/catalog/v1/catalog.proto -- there is no hand-written interface here to fall out of date.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.14.0",
+    "@connectrpc/connect": "^2.1.2",
+    "@connectrpc/connect-web": "^2.1.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

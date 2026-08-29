@@ -1,0 +1,20 @@
+
+  procedure   /platform.catalog.v1.EventService/Publish
+  request     PublishRequest  (topic, payload)
+  response    PublishResponse (event_id)
+
+  TRANSPORTS
+    rpc       not exposed
+    rest      not exposed
+    bus       rpc.platform.catalog.v1.EventService.Publish
+                queue group: events · at-least-once: no · max payload: 1 MiB
+    mqtt      interchange/rpc/platform.catalog.v1.EventService/Publish
+                queue group: events · at-least-once: yes · max payload: 256 MiB
+    ws        not exposed
+
+  AUTHORIZATION
+    not declared (the (auth) annotation is an optional module)
+
+  CLI          not mounted
+  idempotent   no
+

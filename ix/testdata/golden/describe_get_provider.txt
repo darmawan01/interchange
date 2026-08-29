@@ -1,0 +1,18 @@
+
+  procedure   /platform.catalog.v1.CatalogService/GetProvider
+  request     GetProviderRequest  (provider_id)
+  response    GetProviderResponse (provider)
+
+  TRANSPORTS
+    rpc       POST /platform.catalog.v1.CatalogService/GetProvider
+    rest      no (google.api.http) rule
+    bus       not exposed
+    mqtt      not exposed
+    ws        not exposed
+
+  AUTHORIZATION
+    not declared (the (auth) annotation is an optional module)
+
+  CLI          not mounted
+  idempotent   no
+

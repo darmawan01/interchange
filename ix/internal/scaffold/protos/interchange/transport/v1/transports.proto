@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package interchange.transport.v1;
+
+import "google/protobuf/descriptor.proto";
+
+// Which roads an RPC travels. This is the annotation a plain RPC stack has no
+// equivalent for, and it is what makes the fan-out reviewable: exposing an
+// internal admin RPC on the public bus is a one-line diff (§02).
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_RPC = 1;
+  TRANSPORT_REST = 2;
+  TRANSPORT_BUS = 3;
+  TRANSPORT_MQTT = 4;
+  TRANSPORT_WS = 5;
+}
+
+message TransportOptions {
+  repeated Transport on = 1;
+
+  // Competing-consumer group: a NATS queue group or an MQTT $share name.
+  // Ignored by drivers whose Capabilities report CompetingGroup false.
+  string group = 2;
+}
+
+// Service-level default. Per-RPC (transports) overrides it entirely --
+// it is a replacement, not a merge, so a reviewer reads one annotation
+// rather than composing two (§08, resolved).
+message ServiceTransportOptions {
+  repeated Transport on = 1;
+  string group = 2;
+}
+
+extend google.protobuf.MethodOptions {
+  // 50002 -- see docs/annotation-band.md
+  TransportOptions transports = 50002;
+
+  // 50003 -- skipped by every public binding; mTLS-only.
+  bool internal = 50003;
+}
+
+extend google.protobuf.ServiceOptions {
+  // 50002 on ServiceOptions: a different extendee, so no collision with
+  // the MethodOptions assignment above. Both are recorded in the band table.
+  ServiceTransportOptions service_transports = 50002;
+}

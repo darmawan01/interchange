@@ -1,0 +1,20 @@
+
+  procedure   /platform.catalog.v1.CatalogService/DrainProvider
+  request     DrainProviderRequest  (provider_id)
+  response    DrainProviderResponse (drained)
+
+  TRANSPORTS
+    rpc       POST /platform.catalog.v1.CatalogService/DrainProvider
+    rest      not exposed
+    bus       not exposed
+    mqtt      not exposed
+    ws        not exposed
+    (internal) is set: every public binding skips this RPC; mTLS-only
+
+  AUTHORIZATION
+    not declared (the (auth) annotation is an optional module)
+
+  CLI          not mounted
+  idempotent   no
+  internal     yes
+
