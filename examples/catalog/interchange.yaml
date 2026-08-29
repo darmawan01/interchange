@@ -18,10 +18,10 @@ transports:
 generate:
   # Pinned to the protobuf runtime core requires; a split pin means two
   # descriptor runtimes in one binary.
-  - {plugin: "buf.build/protocolbuffers/go:v1.36.12", out: gen/go, opt: [paths=source_relative]}
+  - {plugin: ../../bin/protoc-gen-go, out: gen/go, opt: [paths=source_relative]}
 
   # The browser/CLI/SDK client, pinned to the connect-go version core imports.
-  - {plugin: "buf.build/connectrpc/go:v1.20.0", out: gen/go, opt: [paths=source_relative]}
+  - {plugin: ../../bin/protoc-gen-connect-go, out: gen/go, opt: [paths=source_relative]}
 
   # The local plugins live in the repo's ./bin, built by `make plugins` from
   # the modules that own them: this example is a consumer of tools/ and auth/,

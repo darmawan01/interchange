@@ -1,8 +1,9 @@
 {
   "name": "@interchange/cli",
   "version": "0.1.0",
-  "description": "ix — the Interchange CLI. One contract, every road.",
+  "description": "ix \u2014 the Interchange CLI. One contract, every road.",
   "license": "Apache-2.0",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/darmawan01/interchange.git",

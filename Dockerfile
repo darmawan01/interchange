@@ -7,7 +7,7 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ix ./ix && \
+    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ix ./ix/cmd/ix && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/protoc-gen-bus ./tools/cmd/protoc-gen-bus && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/protoc-gen-cli ./tools/cmd/protoc-gen-cli && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/protoc-gen-authz ./auth/cmd/protoc-gen-authz

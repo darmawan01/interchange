@@ -8,5 +8,8 @@
   ],
   "scripts": {
     "typecheck": "npm --workspace web run typecheck"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.14.0"
   }
 }

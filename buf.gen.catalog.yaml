@@ -45,12 +45,12 @@ managed:
 plugins:
   # Pinned to the protobuf runtime core requires; a split pin means two
   # descriptor runtimes in one binary.
-  - remote: buf.build/protocolbuffers/go:v1.36.12
+  - local: bin/protoc-gen-go
     out: examples/catalog/gen/go
     opt: [paths=source_relative]
 
   # The browser/CLI/SDK client. Pinned to the connect-go version core imports.
-  - remote: buf.build/connectrpc/go:v1.20.0
+  - local: bin/protoc-gen-connect-go
     out: examples/catalog/gen/go
     opt: [paths=source_relative]
 
@@ -91,7 +91,7 @@ plugins:
   # have to be emitted alongside or the front end will not typecheck. The Go
   # plugins must NOT have it -- core, /auth and /tools already ship those types
   # and a second registration of the same file panics at init.
-  - remote: buf.build/bufbuild/es:v2.14.0
+  - local: examples/catalog/node_modules/.bin/protoc-gen-es
     out: examples/catalog/gen/ts
     opt: [target=ts, import_extension=js]
     include_imports: true

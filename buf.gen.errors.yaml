@@ -11,6 +11,6 @@ managed:
 plugins:
   # Pinned to the same protobuf runtime the core module requires; a plugin
   # newer than the runtime emits code the runtime cannot load.
-  - remote: buf.build/protocolbuffers/go:v1.36.12
+  - local: bin/protoc-gen-go
     out: errors/gen/go
     opt: [paths=source_relative]

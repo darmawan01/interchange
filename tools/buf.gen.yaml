@@ -13,6 +13,6 @@ managed:
 plugins:
   # Pinned to the same version core uses; a split pin means two descriptor
   # runtimes in one binary.
-  - remote: buf.build/protocolbuffers/go:v1.36.12
+  - local: bin/protoc-gen-go
     out: tools/gen/go
     opt: [paths=source_relative]

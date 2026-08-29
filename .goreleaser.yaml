@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: ix
-    main: ./ix
+    main: ./ix/cmd/ix
     binary: ix
     env: [CGO_ENABLED=0]
     goos: [darwin, linux, windows]
