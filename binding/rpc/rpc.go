@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/darmawan01/interchange"
@@ -109,7 +110,7 @@ func (b *Binding) handler(md *interchange.MethodDesc) (http.Handler, error) {
 			env := &interchange.Envelope{
 				Procedure: procedure,
 				Metadata:  metadataFromHeader(req.Header()),
-				Codec:     codecName(req.Peer().Protocol, req.Header().Get("Content-Type")),
+				Codec:     codecName(req.Header().Get("Content-Type")),
 				Msg:       req.Msg.msg,
 			}
 			// HTTP supplies the deadline; the envelope carries it so the same
@@ -133,8 +134,10 @@ func (b *Binding) handler(md *interchange.MethodDesc) (http.Handler, error) {
 		}, opts...), nil
 }
 
-func codecName(_, contentType string) string {
-	if len(contentType) >= len("application/json") && contentType[len("application/"):] == "json" {
+func codecName(contentType string) string {
+	// "application/json; charset=utf-8" is a JSON request. Comparing the
+	// whole header value silently decodes it as proto instead.
+	if strings.HasPrefix(contentType, "application/json") {
 		return interchange.CodecJSON
 	}
 	return interchange.CodecProto

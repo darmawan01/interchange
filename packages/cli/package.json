@@ -1,0 +1,32 @@
+{
+  "name": "@interchange/cli",
+  "version": "0.1.0",
+  "description": "ix — the Interchange CLI. One contract, every road.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darmawan01/interchange.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "ix": "bin/ix.js",
+    "interchange": "bin/ix.js"
+  },
+  "files": [
+    "bin/ix.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@interchange/cli-darwin-arm64": "0.1.0",
+    "@interchange/cli-darwin-x64": "0.1.0",
+    "@interchange/cli-linux-arm64": "0.1.0",
+    "@interchange/cli-linux-x64": "0.1.0",
+    "@interchange/cli-win32-x64": "0.1.0"
+  },
+  "scripts": {
+    "build:platforms": "node scripts/build-platform-packages.mjs"
+  }
+}

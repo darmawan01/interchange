@@ -283,3 +283,20 @@ func MethodFromContext(ctx context.Context) (*MethodDesc, bool) {
 	md, ok := ctx.Value(methodKey{}).(*MethodDesc)
 	return md, ok
 }
+
+// Registrar is what generated code registers against. Both the dispatch
+// registry and a binding satisfy it, so generated wiring does not have to
+// know which it was handed.
+type Registrar interface {
+	Register(sd *ServiceDesc, impl any, chain *ChainSpec) error
+}
+
+// Mounter is a binding that can expose a service already present in a
+// registry. Two bindings serving one registry means registering once and
+// mounting on each -- which is the wiring that makes chain symmetry
+// unavoidable rather than merely intended.
+type Mounter interface {
+	Mount(sd *ServiceDesc) error
+}
+
+var _ Registrar = (*Registry)(nil)

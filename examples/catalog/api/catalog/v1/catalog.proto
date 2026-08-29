@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package catalog.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "interchange/auth/v1/auth.proto";
+import "interchange/auth/v1/permissions.proto";
+import "interchange/cli/v1/cli.proto";
+import "interchange/common/v1/types.proto";
+import "interchange/transport/v1/transports.proto";
+
+// A provider in the catalog.
+message Provider {
+  // Ids are strings -- ULID or KSUID, type-prefixed. Never integers: an
+  // integer id leaks row counts and cannot be minted by a client.
+  string provider_id = 1;
+
+  string tenant_id = 2;
+  string display_name = 3;
+  ProviderStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+enum ProviderStatus {
+  PROVIDER_STATUS_UNSPECIFIED = 0;
+  PROVIDER_STATUS_ACTIVE = 1;
+  PROVIDER_STATUS_SUSPENDED = 2;
+}
+
+message ListProvidersRequest {
+  string tenant_id = 1;
+  interchange.common.v1.PageRequest page = 2;
+}
+
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+  string next_page_token = 2;
+}
+
+message GetProviderRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+}
+
+message GetProviderResponse {
+  Provider provider = 1;
+}
+
+message CreateProviderRequest {
+  string tenant_id = 1;
+  string display_name = 2;
+}
+
+message CreateProviderResponse {
+  Provider provider = 1;
+}
+
+message SyncProviderRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+}
+
+message SyncProviderResponse {
+  string job_id = 1;
+}
+
+message ReconcileRequest {
+  string tenant_id = 1;
+}
+
+message ReconcileResponse {
+  int32 reconciled = 1;
+}
+
+// The worked example: one service, five roads, one handler.
+service CatalogService {
+  // Every method travels RPC and REST unless it says otherwise. Declaring
+  // the default here means a per-method annotation is a deliberate,
+  // reviewable exception rather than boilerplate on every RPC.
+  option (interchange.transport.v1.service_transports) = {
+    on: [TRANSPORT_RPC, TRANSPORT_REST]
+  };
+
+  // ListProviders returns every provider registered to a tenant.
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {
+    // 1. REST binding, and the derived OpenAPI path.
+    option (google.api.http) = {get: "/v1/catalog/providers"};
+
+    // 2. Lets a Connect client issue a real cacheable GET.
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    // 3. Which roads this RPC travels. Naming BUS is what emits the
+    //    subscriber -- and what a reviewer sees in the diff.
+    option (interchange.transport.v1.transports) = {
+      on: [TRANSPORT_RPC, TRANSPORT_REST, TRANSPORT_BUS]
+      group: "catalog"
+    };
+
+    // 4. Authorization. OPTIONAL module: core never parses this. If the
+    //    module is installed, the chain applies it identically on all three
+    //    roads -- which is the failure class this project exists to close.
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION, AUTH_TYPE_API_KEY, AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_READ}
+    };
+
+    // 5. CLI: mounts as `catalog providers`.
+    option (interchange.cli.v1.command) = {path: ["catalog", "providers"]};
+  }
+
+  rpc GetProvider(GetProviderRequest) returns (GetProviderResponse) {
+    option (google.api.http) = {get: "/v1/catalog/providers/{provider_id}"};
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (interchange.transport.v1.transports) = {
+      on: [TRANSPORT_RPC, TRANSPORT_REST, TRANSPORT_BUS]
+      group: "catalog"
+    };
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION, AUTH_TYPE_API_KEY, AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_READ}
+    };
+    option (interchange.cli.v1.command) = {
+      path: ["catalog", "provider"]
+      args: ["provider_id"]
+    };
+  }
+
+  rpc CreateProvider(CreateProviderRequest) returns (CreateProviderResponse) {
+    option (google.api.http) = {
+      post: "/v1/catalog/providers"
+      body: "*"
+    };
+    option (interchange.transport.v1.transports) = {
+      on: [TRANSPORT_RPC, TRANSPORT_REST, TRANSPORT_BUS]
+      group: "catalog"
+    };
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION, AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_CREATE}
+    };
+    option (interchange.cli.v1.command) = {path: ["catalog", "provider", "create"]};
+  }
+
+  // SyncProvider is service-to-service work. It is on the bus and nowhere
+  // else: no browser needs it, and a partner certainly does not.
+  rpc SyncProvider(SyncProviderRequest) returns (SyncProviderResponse) {
+    option (interchange.transport.v1.transports) = {
+      on: [TRANSPORT_BUS]
+      group: "catalog"
+    };
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_EDIT}
+    };
+    option (interchange.cli.v1.command) = {path: ["catalog", "provider", "sync"]};
+  }
+
+  // Reconcile is cross-tenant maintenance. `internal` keeps it off every
+  // public binding; `platform` says the request carries no tenant.
+  rpc Reconcile(ReconcileRequest) returns (ReconcileResponse) {
+    option (interchange.transport.v1.internal) = true;
+    option (interchange.transport.v1.transports) = {on: [TRANSPORT_BUS]};
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_EDIT}
+      platform: true
+    };
+    option (interchange.cli.v1.command) = {skip: true};
+  }
+}

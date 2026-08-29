@@ -1,0 +1,51 @@
+version: 2
+
+project_name: ix
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: ix
+    main: ./ix
+    binary: ix
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+
+archives:
+  - id: ix
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+# A tap so `brew install <tap>/ix` works. Publishing is deliberately left
+# switched off while the name is still a working name.
+brews:
+  - name: ix
+    repository:
+      owner: darmawan01
+      name: homebrew-tap
+    homepage: https://github.com/darmawan01/interchange
+    description: "One contract, every road — the Interchange CLI"
+    license: Apache-2.0
+    skip_upload: true
+
+dockers:
+  - image_templates:
+      - "ghcr.io/darmawan01/ix:{{ .Version }}"
+      - "ghcr.io/darmawan01/ix:latest"
+    dockerfile: Dockerfile
+    skip_push: true
+    build_flag_templates:
+      - "--label=org.opencontainers.image.source=https://github.com/darmawan01/interchange"
+
+release:
+  disable: true # flip this on when the name is settled

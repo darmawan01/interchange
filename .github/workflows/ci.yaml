@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # `ix breaking` needs history to compare against
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      # The dependency rule, asserted before anything else: if core has grown
+      # a broker client, a router or a policy engine, nothing below matters.
+      - name: dependency rule
+        run: ./hack/depcheck.sh
+
+      - name: build plugins and ix
+        run: make plugins ix
+
+      - name: vet
+        run: make vet
+
+      - name: test
+        run: make test
+
+      - name: lint the contract and the annotations
+        run: make lint
+
+      # The drift gate. Generated output is committed; this fails the build
+      # when it is stale, which is what stops the contract from drifting.
+      - name: verify (drift gate)
+        run: make verify
+
+      - name: breaking changes
+        if: github.event_name == 'pull_request'
+        run: ./bin/ix breaking --against "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }}"
