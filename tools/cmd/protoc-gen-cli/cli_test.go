@@ -10,6 +10,7 @@ import (
 	fixturev1 "github.com/darmawan01/interchange/tools/testdata/gen/interchange/fixture/v1"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
@@ -245,5 +246,52 @@ func TestShortFallsBackToComment(t *testing.T) {
 	src := files["bad/v1/badv1cli/bad_cli.pb.go"]
 	if !strings.Contains(src, `Short: "Do the thing."`) {
 		t.Errorf("the RPC's documentation did not become the command's help:\n%s", src)
+	}
+}
+
+// TestOptionsSurviveAnUnresolvedDescriptor: a (command) annotation read as
+// absent would not fail the build, it would quietly drop the command -- and
+// under require_annotation=true it would fail a build that is correct. Core's
+// ResolveOptions is what stops both.
+func TestOptionsSurviveAnUnresolvedDescriptor(t *testing.T) {
+	req := plugintest.Request(t, "paths=source_relative",
+		fixturev1.File_interchange_fixture_v1_extra_proto,
+		fixturev1.File_interchange_fixture_v1_fixture_proto)
+	generated := map[string]bool{}
+	for _, n := range req.GetFileToGenerate() {
+		generated[n] = true
+	}
+	for _, f := range req.GetProtoFile() {
+		if !generated[f.GetName()] {
+			continue
+		}
+		for _, s := range f.GetService() {
+			for _, m := range s.GetMethod() {
+				opts := m.GetOptions()
+				if opts == nil {
+					continue
+				}
+				b, err := proto.Marshal(opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fresh := &descriptorpb.MethodOptions{}
+				if err := (proto.UnmarshalOptions{Resolver: &protoregistry.Types{}}).Unmarshal(b, fresh); err != nil {
+					t.Fatal(err)
+				}
+				m.Options = fresh
+			}
+		}
+	}
+	got, err := plugintest.Run(req, protogen.Options{}, func(p *protogen.Plugin) error {
+		return generate(p, &config{})
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	for name, want := range mustRun(t, &config{}) {
+		if got[name] != want {
+			t.Errorf("%s: an unresolved descriptor produced different code; the annotation was read as absent", name)
+		}
 	}
 }

@@ -56,14 +56,9 @@ func NewExtraServiceDesc() *interchange.ServiceDesc {
 	}
 }
 
-// RegisterExtraService binds impl behind chain.
-//
-// The parameter is an anonymous interface because core exports no Registrar
-// type; *interchange.Registry and *rpc.Binding both satisfy it. Naming it
-// here instead would put a type every generated package declares into the
-// same Go package whenever two .proto files share a directory.
-func RegisterExtraService(r interface {
-	Register(sd *interchange.ServiceDesc, impl any, chain *interchange.ChainSpec) error
-}, impl ExtraServiceHandler, chain *interchange.ChainSpec) error {
+// RegisterExtraService binds impl behind chain. Both *interchange.Registry and
+// a binding satisfy Registrar, so this wiring does not know which road it
+// was handed.
+func RegisterExtraService(r interchange.Registrar, impl ExtraServiceHandler, chain *interchange.ChainSpec) error {
 	return r.Register(NewExtraServiceDesc(), impl, chain)
 }

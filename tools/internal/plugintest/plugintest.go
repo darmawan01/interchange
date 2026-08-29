@@ -54,23 +54,15 @@ func Request(t testing.TB, param string, generate ...protoreflect.FileDescriptor
 		names = append(names, fd.Path())
 	}
 
-	req := &pluginpb.CodeGeneratorRequest{
+	// No re-parse here on purpose. Whether an annotation survives to the
+	// plugin is interchange.ResolveOptions' job, in core, once -- a harness
+	// that pre-resolved options would hide a plugin that reads them the
+	// fragile way.
+	return &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: names,
 		Parameter:      proto.String(param),
 		ProtoFile:      files,
 	}
-	// The round trip is not ceremony: it is where option extensions stop
-	// being unknown bytes and become the typed annotations the plugin reads,
-	// which is exactly what happens at the real protoc boundary.
-	raw, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatalf("plugintest: marshal request: %v", err)
-	}
-	out := &pluginpb.CodeGeneratorRequest{}
-	if err := proto.Unmarshal(raw, out); err != nil {
-		t.Fatalf("plugintest: unmarshal request: %v", err)
-	}
-	return out
 }
 
 // Run invokes a plugin and returns its output files by name.

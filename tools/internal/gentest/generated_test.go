@@ -129,11 +129,22 @@ func TestResolvedAnnotationsReachTheRegistry(t *testing.T) {
 	}
 }
 
-// TestRegisterAcceptsAnRPCBinding: the anonymous Registrar interface has two
-// implementations in the tree, and this is the one core does not export.
+// The two seams the generated code leans on, asserted where they would break
+// first: a binding is a Registrar, and both clients are Invokers, so a
+// generated command tree needs no adapter to reach either road.
+var (
+	_ interchange.Registrar = (*interchange.Registry)(nil)
+	_ interchange.Registrar = (*rpc.Binding)(nil)
+	_ interchange.Mounter   = (*rpc.Binding)(nil)
+	_ clisupport.Invoker    = (*rpc.Client)(nil)
+	_ clisupport.Invoker    = (*engine.Client)(nil)
+)
+
+// TestRegisterAcceptsAnRPCBinding registers through the interface rather than
+// the concrete type, which is the call generated code makes.
 func TestRegisterAcceptsAnRPCBinding(t *testing.T) {
-	b := rpc.New(interchange.NewRegistry())
-	if err := fixturev1bus.RegisterFixtureService(b, impl{}, interchange.Chain()); err != nil {
+	var r interchange.Registrar = rpc.New(interchange.NewRegistry())
+	if err := fixturev1bus.RegisterFixtureService(r, impl{}, interchange.Chain()); err != nil {
 		t.Fatalf("register on an rpc.Binding: %v", err)
 	}
 }
@@ -284,5 +295,4 @@ func TestCoverage(t *testing.T) {
 	if !strings.Contains(plain.String(), "PlainService/Ping") {
 		t.Errorf("report must name the hole: %s", plain)
 	}
-	var _ clisupport.Invoker = &recorder{}
 }

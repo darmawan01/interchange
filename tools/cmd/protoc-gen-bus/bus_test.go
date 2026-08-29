@@ -10,6 +10,7 @@ import (
 	fixturev1 "github.com/darmawan01/interchange/tools/testdata/gen/interchange/fixture/v1"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
@@ -267,4 +268,56 @@ func TestDocComments(t *testing.T) {
 	if !strings.Contains(src, "\t// Do the thing.\n\t// Twice.\n\tDo(context.Context") {
 		t.Errorf("the RPC's documentation did not reach the server interface:\n%s", src)
 	}
+}
+
+// TestOptionsSurviveAnUnresolvedDescriptor is the seam interchange.ResolveOptions
+// exists for. A descriptor that did not come from linked generated Go -- one a
+// schema frontend or protocompile built -- carries its custom options as
+// unknown bytes, and proto.GetExtension reads a present annotation as absent
+// against those. Silently. Here the fixture's options are stripped back to
+// unknown bytes, and the generated output must not change by one byte.
+func TestOptionsSurviveAnUnresolvedDescriptor(t *testing.T) {
+	req := fixtureRequest(t)
+	generated := map[string]bool{}
+	for _, n := range req.GetFileToGenerate() {
+		generated[n] = true
+	}
+	for _, f := range req.GetProtoFile() {
+		if !generated[f.GetName()] {
+			continue
+		}
+		for _, s := range f.GetService() {
+			s.Options = unresolve(t, s.GetOptions(), func() *descriptorpb.ServiceOptions { return &descriptorpb.ServiceOptions{} })
+			for _, m := range s.GetMethod() {
+				m.Options = unresolve(t, m.GetOptions(), func() *descriptorpb.MethodOptions { return &descriptorpb.MethodOptions{} })
+			}
+		}
+	}
+	got, err := plugintest.Run(req, protogen.Options{}, generate)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	for name, want := range run(t) {
+		if got[name] != want {
+			t.Errorf("%s: an unresolved descriptor produced different code; an annotation was read as absent", name)
+		}
+	}
+}
+
+// unresolve re-parses an options message with a resolver that knows no
+// extensions, which is how a descriptor built anywhere but here arrives.
+func unresolve[T proto.Message](t *testing.T, in T, fresh func() T) T {
+	t.Helper()
+	if !in.ProtoReflect().IsValid() {
+		return in
+	}
+	b, err := proto.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fresh()
+	if err := (proto.UnmarshalOptions{Resolver: &protoregistry.Types{}}).Unmarshal(b, out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

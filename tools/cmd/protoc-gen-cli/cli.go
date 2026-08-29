@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/darmawan01/interchange"
 	cliv1 "github.com/darmawan01/interchange/tools/gen/go/interchange/cli/v1"
 	"github.com/darmawan01/interchange/tools/internal/genutil"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -85,8 +86,10 @@ func model(f *protogen.File, cfg *config) ([]service, error) {
 		for _, m := range s.Methods {
 			loc := genutil.SourceLoc(f, m.Location)
 			procedure := "/" + svc.fullName + "/" + string(m.Desc.Name())
-			opts, _ := m.Desc.Options().(*descriptorpb.MethodOptions)
-			ann := commandOptions(opts)
+			// Core resolves the extension: a descriptor that a schema
+			// frontend built carries dynamicpb values, against which
+			// proto.GetExtension reads a present annotation as absent.
+			ann := commandOptions(interchange.MethodOptions(m.Desc))
 
 			streaming := m.Desc.IsStreamingClient() || m.Desc.IsStreamingServer()
 			switch {

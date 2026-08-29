@@ -22,9 +22,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// Invoker calls one procedure. Anything that can carry a request to a server
-// satisfies it: rpc.Client wrapped with a MethodDesc, engine.Client.Invoke
-// directly, or a stub.
+// Invoker calls one procedure. The signature is core's on both roads:
+// *rpc.Client and *engine.Client satisfy it as they are, so the same command
+// tree runs over HTTP, over a bus, or against a stub with no adapter in
+// between.
 type Invoker interface {
 	Invoke(ctx context.Context, procedure string, in, out proto.Message) error
 }

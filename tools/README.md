@@ -21,9 +21,8 @@ generated code and its message types never collide. Per service:
   `protoreflect.MethodDescriptor`, looked up **by name** so inserting an RPC cannot silently
   repoint the descriptor an optional module reads its own annotation off.
 - **`<Service>Handler`** — the server interface. One implementation serves every road.
-- **`Register<Service>(r, impl, chain)`** — `r` is an *anonymous* interface with core's
-  `Register(sd, impl, chain) error` method. Both `*interchange.Registry` and `*rpc.Binding`
-  satisfy it. See "Seams" below.
+- **`Register<Service>(r interchange.Registrar, impl, chain)`** — `*interchange.Registry` and
+  `*rpc.Binding` both satisfy `Registrar`, so generated wiring does not know which it was handed.
 - **`New<Service>BusClient(*engine.Client, ...)`** — only for services with a method on
   `TRANSPORT_BUS`, `_MQTT` or `_WS`, and only those methods get client methods: a generated call to
   a procedure nothing subscribes to is a timeout wearing a confident signature.
@@ -60,7 +59,8 @@ Output: `<dir>/<pkg>cli/<proto>_cli.pb.go`, package `<pkg>cli`. Per service:
 
 - **`Register<Service>Commands(root *cobra.Command, inv clisupport.Invoker)`** — mounts each
   annotated RPC at its `path`. Commands call through `Invoker`, so the tree is transport-agnostic:
-  a CLI is a caller, and a caller does not pick the road.
+  a CLI is a caller, and a caller does not pick the road. `*rpc.Client` and `*engine.Client` both
+  satisfy `Invoker` unchanged.
 - **`<Service>Coverage() clisupport.Coverage`** — covered, deliberately skipped, and unannotated
   procedures.
 
@@ -122,13 +122,14 @@ instead (`TestDocComments`, `TestStreamingRefused`), because the golden is blind
 
 ## Seams
 
-**Core exports no `Registrar`.** `Register<Service>` therefore takes an anonymous interface. Naming
-it in this module would make every service's runtime depend on `tools` (and so on cobra); naming it
-per generated package would collide the moment two `.proto` files share a directory. The right home
-is core, next to `Registry`:
+Three findings from the first pass are closed in core: `interchange.Registrar` (used by
+`Register<Service>`), `interchange.ResolveOptions` (below), and `rpc.Client.Invoke` taking a
+procedure string, which is why `Invoker` needs no adapter.
 
-```go
-type Registrar interface {
-    Register(sd *ServiceDesc, impl any, chain *ChainSpec) error
-}
-```
+**Annotations are read through core, never off `Descriptor.Options()` directly.** Both plugins call
+`interchange.MethodOptions` / `ServiceOptions`. A descriptor that did not come from linked generated
+Go — one protocompile or a schema frontend built — carries its custom options as dynamicpb values or
+unknown bytes, and `proto.GetExtension` reads a present annotation as **absent** against those,
+without an error. `TestOptionsSurviveAnUnresolvedDescriptor` in each plugin strips the fixture's
+options back to unknown bytes and asserts the output does not change by a byte; reverting either
+plugin to the direct cast fails it.

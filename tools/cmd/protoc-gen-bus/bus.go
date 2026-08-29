@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/darmawan01/interchange"
 	transportv1 "github.com/darmawan01/interchange/gen/go/interchange/transport/v1"
 	"github.com/darmawan01/interchange/tools/internal/genutil"
 	"google.golang.org/protobuf/compiler/protogen"
-	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const (
@@ -78,7 +78,7 @@ func generate(p *protogen.Plugin) error {
 func model(f *protogen.File) ([]service, error) {
 	svcs := make([]service, 0, len(f.Services))
 	for _, s := range f.Services {
-		svcOpt := serviceTransportOptions(s.Desc.Options().(*descriptorpb.ServiceOptions))
+		svcOpt := serviceTransportOptions(interchange.ServiceOptions(s.Desc))
 		out := service{
 			name:     string(s.Desc.Name()),
 			goName:   s.GoName,
@@ -89,7 +89,7 @@ func model(f *protogen.File) ([]service, error) {
 				return nil, fmt.Errorf("%s: %s is a streaming RPC; interchange is unary only, and a binding that quietly dropped it would be a contract the code does not keep",
 					genutil.SourceLoc(f, m.Location), m.Desc.FullName())
 			}
-			opts := m.Desc.Options().(*descriptorpb.MethodOptions)
+			opts := interchange.MethodOptions(m.Desc)
 			on, group, err := resolve(svcOpt, methodTransportOptions(opts))
 			if err != nil {
 				return nil, fmt.Errorf("%s: %s: %w", genutil.SourceLoc(f, m.Location), m.Desc.FullName(), err)
@@ -189,15 +189,11 @@ func emitService(b *strings.Builder, im *genutil.Importer, f *protogen.File, s s
 	pf("}")
 	pf("")
 
-	pf("// Register%s binds impl behind chain.", s.goName)
-	pf("//")
-	pf("// The parameter is an anonymous interface because core exports no Registrar")
-	pf("// type; *interchange.Registry and *rpc.Binding both satisfy it. Naming it")
-	pf("// here instead would put a type every generated package declares into the")
-	pf("// same Go package whenever two .proto files share a directory.")
-	pf("func Register%s(r interface {", s.goName)
-	pf("\tRegister(sd *%s.ServiceDesc, impl any, chain *%s.ChainSpec) error", im.Pkg(corePkg), im.Pkg(corePkg))
-	pf("}, impl %sHandler, chain *%s.ChainSpec) error {", s.goName, im.Pkg(corePkg))
+	pf("// Register%s binds impl behind chain. Both *interchange.Registry and", s.goName)
+	pf("// a binding satisfy Registrar, so this wiring does not know which road it")
+	pf("// was handed.")
+	pf("func Register%s(r %s.Registrar, impl %sHandler, chain *%s.ChainSpec) error {",
+		s.goName, im.Pkg(corePkg), s.goName, im.Pkg(corePkg))
 	pf("\treturn r.Register(New%sDesc(), impl, chain)", s.goName)
 	pf("}")
 	pf("")
