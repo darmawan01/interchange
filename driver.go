@@ -13,8 +13,14 @@ type Unsubscribe func() error
 type Inbound struct {
 	Address string
 
-	// Header is empty when Caps().NativeHeaders is false -- the engine has
-	// folded metadata into the envelope in that case.
+	// Header is metadata the transport supplied out of band. On a transport
+	// with native headers it is those headers. On one without, it is
+	// whatever the driver knows that the envelope does not -- a WebSocket's
+	// connection-scoped credential, established by a handshake frame because
+	// a browser cannot set an Authorization header on an upgrade.
+	//
+	// The engine merges it beneath the envelope's own metadata, so a
+	// per-call value always wins over a per-connection one.
 	Header map[string]string
 
 	Body []byte
@@ -94,4 +100,15 @@ type Driver interface {
 // implements it and the engine closes it on shutdown.
 type Closer interface {
 	Close() error
+}
+
+// Watcher is an optional driver capability for a driver that holds a
+// connection rather than talking to a broker that outlives it. The engine
+// watches Done and fails every pending call when the transport is gone.
+//
+// Without it a client on a dead socket waits out its deadline for a reply
+// that provably will not arrive -- correct, but a needlessly slow way to
+// learn something the driver already knew.
+type Watcher interface {
+	Done() <-chan struct{}
 }

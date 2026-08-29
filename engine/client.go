@@ -88,6 +88,16 @@ func NewClient(ctx context.Context, drv interchange.Driver, opts ...ClientOption
 		return nil, fmt.Errorf("engine: subscribe to reply address: %w", err)
 	}
 	c.unsub = unsub
+
+	// A driver that holds a connection can tell us when it dies. Without
+	// this every pending call waits out its deadline for a reply that
+	// provably will not arrive.
+	if w, ok := drv.(interchange.Watcher); ok {
+		go func() {
+			<-w.Done()
+			_ = c.Close()
+		}()
+	}
 	return c, nil
 }
 

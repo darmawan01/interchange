@@ -110,8 +110,20 @@ type Subscription struct {
 // methods all share one group is one wildcard subscription; a service that
 // mixes groups is subscribed per procedure, because a queue group is a
 // property of the subscription and not of the message.
+//
+// The result is deduplicated: on a single-channel transport every procedure
+// resolves to the same address, and subscribing twice would run the handler
+// twice for one message.
 func (s *Server) Plan() []Subscription {
 	var out []Subscription
+	seen := map[Subscription]struct{}{}
+	add := func(sub Subscription) {
+		if _, dup := seen[sub]; dup {
+			return
+		}
+		seen[sub] = struct{}{}
+		out = append(out, sub)
+	}
 	for _, sd := range s.reg.Services() {
 		var exposed []*interchange.MethodDesc
 		groups := map[string]struct{}{}
@@ -127,14 +139,14 @@ func (s *Server) Plan() []Subscription {
 			continue
 		}
 		if len(groups) == 1 {
-			out = append(out, Subscription{
+			add(Subscription{
 				Pattern: s.drv.ServiceWildcard(sd.Name),
 				Group:   s.group(exposed[0].Group),
 			})
 			continue
 		}
 		for _, m := range exposed {
-			out = append(out, Subscription{
+			add(Subscription{
 				Pattern: s.drv.Address(m.Procedure),
 				Group:   s.group(m.Group),
 			})
@@ -273,11 +285,16 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) error {
 	// Metadata fallback: native headers where the transport has them, folded
 	// into the envelope where it does not. Above this line nothing else in
 	// the system learns which of the two happened.
+	//
+	// The header is merged whatever the transport claims about native
+	// headers. A transport without them hands over an empty map and nothing
+	// changes -- but one that knows something the envelope does not, like a
+	// socket holding a credential from its handshake, now has a way to say
+	// so. The envelope is merged second, so a per-call value beats a
+	// per-connection one.
 	md := interchange.Metadata{}
-	if s.caps.NativeHeaders {
-		for k, v := range in.Header {
-			md.Set(k, v)
-		}
+	for k, v := range in.Header {
+		md.Set(k, v)
 	}
 	for k, v := range req.GetMetadata() {
 		md.Set(k, v)
