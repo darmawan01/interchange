@@ -86,7 +86,11 @@ func (p *Project) verify(g *globals) error {
 	defer os.RemoveAll(tmp)
 
 	if err := p.generate(gentmpl.Options{OutPrefix: tmp}, g.verbose); err != nil {
-		ui.Fail("drift", "regeneration failed")
+		// Not "drift": nothing was compared. Saying drift here sends a
+		// reader looking for a stale file when the actual problem is that
+		// generation did not run -- a missing plugin, or a registry that
+		// rate-limited us.
+		ui.Fail("generate", "could not regenerate, so nothing was compared")
 		fmt.Fprintln(ui.Out)
 		return fail(1, err)
 	}

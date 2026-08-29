@@ -12,9 +12,11 @@ import (
 // document, and a sidecar keyed by procedure (§09 rule 3). Both decode through
 // this file, so the two paths cannot drift apart in what they accept.
 //
-// Precedence: a vendor extension wins. The sidecar is the fallback for a
-// document you cannot edit, so the annotation nearest the operation is the one
-// a reviewer reads.
+// There is no precedence between them: setting the same annotation on an
+// operation and in the sidecar is an error (ADR-0044). The sidecar is the
+// fallback for a document you cannot edit -- and if you cannot edit it, there
+// is nothing to conflict with. Where both exist, quietly picking one is how a
+// security posture gets overwritten by a file nobody reads.
 
 type transportOptions struct {
 	On    []string

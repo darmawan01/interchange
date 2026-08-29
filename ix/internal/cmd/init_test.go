@@ -121,6 +121,9 @@ func TestVerifyDetectsDrift(t *testing.T) {
 	}
 
 	out, code = run(t, dir, "verify")
+	// verify regenerates, so it reaches the registry too -- and a rate limit
+	// there is not a drift failure.
+	networkSkip(t, out, code)
 	if code == 0 {
 		t.Fatalf("verify passed on a hand-edited generated file:\n%s", out)
 	}

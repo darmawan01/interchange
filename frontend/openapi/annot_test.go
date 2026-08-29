@@ -93,7 +93,11 @@ func TestAnnotationsFromBothSources(t *testing.T) {
 
 // The annotation nearest the operation wins: the sidecar is the fallback for a
 // document you cannot edit, not an override of one you can.
-func TestVendorExtensionBeatsSidecar(t *testing.T) {
+// An annotation set on the operation AND in the sidecar is an error, not a
+// precedence rule. Silent precedence is how a security posture gets
+// overwritten by a file nobody reads -- and here the two disagree about the
+// resource, so whichever won quietly would be a permission nobody chose.
+func TestInlineAndSidecarConflict(t *testing.T) {
 	doc := strings.Replace(twoOps, "%s", `      x-interchange-auth:
         auth_types: [WORKLOAD]
         permission: {resource: things, verb: EDIT}
@@ -106,11 +110,24 @@ func TestVendorExtensionBeatsSidecar(t *testing.T) {
       auth_types: [SESSION]
       permission: {resource: overridden, verb: READ}
 `
-	res := importDoc(t, doc, side, nil)
-	svc := findService(t, res.Files, "things/v1/things_service.proto", "ThingsService")
-	auth := extAuthOf(findMethod(t, svc, "ListThings"))
-	if auth.GetPermission().GetResource() != "things" {
-		t.Errorf("sidecar overrode the document: %v", auth)
+	res, err := (&Frontend{}).Import(context.Background(), interchange.Sources{
+		Paths:       []string{"doc.yaml"},
+		Content:     map[string][]byte{"doc.yaml": []byte(doc)},
+		Sidecar:     []byte(side),
+		SidecarPath: "sidecar.yaml",
+	}, interchange.Options{Package: "things.v1"})
+	if err == nil {
+		t.Fatal("an annotation set in both places must refuse, not quietly pick one")
+	}
+	found := false
+	for _, d := range res.Diagnostics {
+		if d.Severity == interchange.SeverityError &&
+			strings.Contains(d.Message, "set both on the operation and in the sidecar") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the diagnostic must name the conflict:\n%s", render(res.Diagnostics))
 	}
 }
 

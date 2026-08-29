@@ -3,10 +3,10 @@ package auth
 import (
 	"sync"
 
+	"github.com/darmawan01/interchange"
 	authv1 "github.com/darmawan01/interchange/auth/gen/go/interchange/auth/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -21,35 +21,25 @@ func AnnotationOf(m protoreflect.MethodDescriptor) Annotation {
 	if m == nil {
 		return Annotation{}
 	}
-	opts, ok := m.Options().(*descriptorpb.MethodOptions)
-	if !ok || opts == nil {
+	// Never m.Options() directly. A descriptor built by a compiler or a
+	// schema frontend carries the option as a dynamicpb value or as unknown
+	// bytes; a typed GetExtension on the first panics and on the second
+	// silently returns nothing -- which would be an authorization check that
+	// stops firing. interchange.MethodOptions normalises both, and owning
+	// that in core rather than here is what stops three modules carrying
+	// three copies of it (ADR-0035).
+	norm := interchange.MethodOptions(m)
+	if norm == nil {
 		return Annotation{}
 	}
-	return annotationFromOptions(opts)
+	return annotationFromOptions(norm)
 }
 
-func annotationFromOptions(opts *descriptorpb.MethodOptions) Annotation {
-	// Re-parse rather than read the extension in place. A descriptor built by
-	// a compiler or a schema frontend resolves the option into a dynamicpb
-	// value or leaves it in unknown fields; a typed GetExtension on the first
-	// panics and on the second silently returns nothing -- which would be an
-	// authorization check that stops firing. Marshalling and re-parsing
-	// against the global type registry normalises both.
-	if proto.Size(opts) == 0 {
+func annotationFromOptions(norm *descriptorpb.MethodOptions) Annotation {
+	if !proto.HasExtension(norm, authv1.E_Auth) {
 		return Annotation{}
 	}
-	raw, err := proto.Marshal(opts)
-	if err != nil {
-		return Annotation{}
-	}
-	var norm descriptorpb.MethodOptions
-	if err := (proto.UnmarshalOptions{Resolver: protoregistry.GlobalTypes}).Unmarshal(raw, &norm); err != nil {
-		return Annotation{}
-	}
-	if !proto.HasExtension(&norm, authv1.E_Auth) {
-		return Annotation{}
-	}
-	ext, _ := proto.GetExtension(&norm, authv1.E_Auth).(*authv1.AuthOptions)
+	ext, _ := proto.GetExtension(norm, authv1.E_Auth).(*authv1.AuthOptions)
 	if ext == nil {
 		return Annotation{}
 	}

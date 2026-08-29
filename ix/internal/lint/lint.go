@@ -195,11 +195,13 @@ func checkFile(fd protoreflect.FileDescriptor, o Options) []Finding {
 }
 
 // publicRoads are the transports whose bindings serve callers outside the
-// deployment. A bus, an MQTT topic tree and a socket are wired by whoever runs
-// the service; an HTTP surface is reachable by whoever can route to it.
+// deployment: an HTTP surface is reachable by whoever can route to it, and a
+// WebSocket is a browser's road by construction. A bus and an MQTT topic tree
+// are wired by whoever runs the service, which is why (internal) plus bus is
+// how an RPC is made reachable service-to-service and nowhere else.
 func publicRoads(m *annot.Method) []string {
 	var out []string
-	for _, road := range []string{"rpc", "rest"} {
+	for _, road := range []string{"rpc", "rest", "ws"} {
 		if m.ExposedOn(road) {
 			out = append(out, road)
 		}

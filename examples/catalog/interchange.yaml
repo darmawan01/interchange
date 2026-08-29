@@ -39,6 +39,21 @@ generate:
       - on_missing_annotation=error
       - known_atoms=providers.read+providers.create+providers.edit
 
+  # TypeScript for the front end. include_imports is per plugin and only this
+  # one wants it: a protobuf-es file names its imports' descriptors at runtime,
+  # so the annotation protos must be emitted alongside or the front end will
+  # not typecheck. The Go plugins must NOT have it -- core, /auth and /tools
+  # already ship those types, and registering the same file twice panics at
+  # init.
+  #
+  # It is here rather than only in buf.gen.catalog.yaml so that `ix verify`
+  # gates gen/ts. Generated output outside the drift gate is the one place
+  # generated output must never sit.
+  - plugin: node_modules/.bin/protoc-gen-es
+    out: gen/ts
+    opt: [target=ts, import_extension=js]
+    include_imports: true
+
 managed:
   enabled: true
   disable:

@@ -1102,21 +1102,33 @@ func (c *converter) number(m *protoMessage, fields []placed) {
 
 // ------------------------------------------------------------- annotations
 
-// annotate resolves the four annotations for one method: a vendor extension
-// wins, the sidecar is the fallback, and a document-level x-interchange-auth
-// or -transports is the default for operations that declare neither.
+// annotate resolves the four annotations for one method. An annotation on the
+// operation and the same annotation in the sidecar is an ERROR, not a
+// precedence rule: silent precedence is how a security posture gets
+// overwritten by a file nobody reads (ADR-0044). A document-level
+// x-interchange-* remains the default for operations that declare neither,
+// which is a default rather than a conflict.
 func (c *converter) annotate(op operation, m *protoMethod) {
 	procedure := "/" + c.pkg + "." + c.service + "/" + m.Name
 	side, hasSide := c.sc.lookup(procedure)
 
 	get := func(key string) (node, bool) {
-		if n, ok := extensionNode(c.src, op.pointer, key); ok {
-			return n, true
-		}
+		inline, hasInline := extensionNode(c.src, op.pointer, key)
+		var fromSide node
+		hasFromSide := false
 		if hasSide {
-			if n, ok := side.entry(strings.TrimPrefix(key, "x-interchange-")); ok {
-				return n, true
-			}
+			fromSide, hasFromSide = side.entry(strings.TrimPrefix(key, "x-interchange-"))
+		}
+		switch {
+		case hasInline && hasFromSide:
+			c.errf(op.pointer,
+				"set it in one place: remove "+key+" from the operation, or remove the sidecar entry",
+				"%s is set both on the operation and in the sidecar for %s", key, procedure)
+			return inline, true
+		case hasInline:
+			return inline, true
+		case hasFromSide:
+			return fromSide, true
 		}
 		if n, ok := extensionNode(c.src, "", key); ok {
 			return n, true

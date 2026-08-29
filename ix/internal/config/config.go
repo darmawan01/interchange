@@ -94,9 +94,19 @@ func (g Generate) Local() bool {
 	if strings.HasPrefix(g.Plugin, ".") || strings.HasPrefix(g.Plugin, "/") {
 		return true
 	}
-	// A remote reference is host-qualified ("buf.build/org/name"); anything
-	// else is a binary looked up on PATH.
-	return !strings.Contains(g.Plugin, "/")
+	// A remote reference is host-qualified: its first path element is a
+	// hostname, so it contains a dot. Anything else is a path on disk
+	// ("node_modules/.bin/protoc-gen-es") or a binary looked up on PATH.
+	//
+	// Testing for a slash alone read every relative path as a remote, and
+	// buf then reported "the server hosted at that remote is unavailable --
+	// are you sure node_modules is a valid remote address?", which is a long
+	// way from the actual mistake.
+	first, _, hasSlash := strings.Cut(g.Plugin, "/")
+	if !hasSlash {
+		return true
+	}
+	return !strings.Contains(first, ".")
 }
 
 // Binary is the local plugin's path, or "" for a remote plugin.

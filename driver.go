@@ -55,7 +55,10 @@ type Inbound struct {
 // behaviour is allowed to differ, which is what lets the engine be written
 // without a switch on transport type.
 type Capabilities struct {
-	// Name identifies the driver in diagnostics and in `ix describe`.
+	// Name identifies the driver in diagnostics and logs. It is not what
+	// `ix describe` prints: that command works off a descriptor set and
+	// never loads a driver, so it reports which roads an RPC travels rather
+	// than which driver is serving them.
 	Name string
 
 	// Transport is which road this driver is. It is routing metadata -- the
