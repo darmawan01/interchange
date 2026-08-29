@@ -71,6 +71,11 @@ type Inbound struct {
     Header  map[string]string                    // empty when !Caps.NativeHeaders
     Body    []byte
     Reply   func([]byte, map[string]string) error // nil when !Caps.NativeReply
+
+    // Called once, after the call has been handled and its reply sent.
+    // nil when the transport has no acknowledgement. Done(nil) means
+    // handled; Done(err) means redeliver if you can.
+    Done    func(error)
 }
 
 // The engine reads this and degrades gracefully. It is the ONLY place
@@ -135,6 +140,25 @@ This is the table the `Caps()` values are drawn from — and the reason the engi
 | **Deadline** | client context | client context | request timeout | `deadline_unix_ms` | `deadline_unix_ms` |
 | **Load balancing** | L7 proxy | L7 proxy | queue group | shared subscription | sticky by connection |
 | **Server stream** | native | SSE | — | — | — |
+| **Acknowledgement** | the response | the response | JetStream ack | QoS 1 puback | — |
+
+## Acknowledgement is a capability like any other
+
+A broker with explicit acknowledgement makes a distinction the others do not: **delivered** and
+**handled** are different events. Acking on delivery buys at-least-once *delivery*, which is not
+the thing anyone wants — a handler that crashes half way through loses work the broker already
+considers done, and replay suppression cannot conjure a redelivery that was never scheduled.
+
+So `Inbound.Done` is called by the engine after the call has been handled and its reply sent, and
+a chunked message holds every frame's acknowledgement until the whole message is handled. A
+transport with nothing to acknowledge leaves it nil and pays nothing.
+
+> **NATS core and NATS JetStream are two drivers, not one with a flag.** The durable tier cannot
+> preserve the publisher's reply subject — a delivered JetStream message carries the consumer's
+> ack subject instead — so it declares `NativeReply: false` and the return address rides in the
+> envelope, exactly as it does on a transport that never had one. The capability matrix row above
+> is true of the core tier. This is what "the engine adapts, and the driver declares" is for: the
+> difference cost one boolean and no engine code.
 
 > ⚠️ **Maturity.** The NATS binding follows a pattern in production, adapted here to the envelope.
 > The **MQTT and WebSocket bindings are proposed design**, and the driver line-counts are estimates.
