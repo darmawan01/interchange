@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package interchange.auth.v1;
+
+enum Verb {
+  VERB_UNSPECIFIED = 0;
+  VERB_READ = 1;
+  VERB_CREATE = 2;
+  VERB_EDIT = 3;
+  VERB_DELETE = 4;
+}
+
+message Permission {
+  string resource = 1;  // "providers"
+  Verb verb = 2;        // VERB_READ  =>  atom "providers.read"
+}

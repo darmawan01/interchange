@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package interchange.transport.v1;
+
+// One request, on any transport.
+message Request {
+  // "/interchange.catalog.v1.CatalogService/ListProviders"
+  // Deliberately IDENTICAL to the Connect procedure string, so one
+  // interceptor chain and one dispatch table serve every binding.
+  string procedure = 1;
+
+  // Opaque metadata: credentials, trace context, tenant hint, idempotency
+  // key. Mirrors http.Header. Bindings map this to native headers where
+  // the transport has them and carry it inline where it does not.
+  map<string, string> metadata = 2;
+
+  // The marshalled request message. bytes, not Any: `procedure` already
+  // determines the type, and Any costs a type-URL round trip.
+  bytes payload = 3;
+
+  // "proto" or "json". Lets a browser-facing binding stay human-readable
+  // while service-to-service traffic stays binary.
+  string codec = 4;
+
+  // Free in HTTP, mandatory everywhere else.
+  string correlation_id = 5;
+
+  // What a client context.Context gives you for free over HTTP.
+  // The server MUST derive its handler context from this.
+  int64 deadline_unix_ms = 6;
+}
+
+message Response {
+  string correlation_id = 1;
+
+  // The RPC status code -- NOT an HTTP status. HTTP bindings project
+  // it onto one; other bindings carry it as-is.
+  int32 code = 2;
+
+  string message = 3;
+
+  // Machine-readable reason from the closed enum (§06).
+  string reason = 4;
+
+  map<string, string> metadata = 5;
+  bytes payload = 6;
+}
+
+// Streaming and async fan-out share one shape.
+message Frame {
+  string correlation_id = 1;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_MESSAGE = 1;
+    KIND_END = 2;
+    KIND_ERROR = 3;
+  }
+
+  Kind kind = 2;
+
+  // Monotonic per stream; lets a receiver drop replays.
+  uint64 sequence = 3;
+
+  bytes payload = 4;
+
+  // Set only on KIND_END / KIND_ERROR.
+  Response status = 5;
+}

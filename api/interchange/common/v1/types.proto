@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package interchange.common.v1;
+
+// Cursor pagination. Offsets do not survive concurrent writes; tokens do.
+message PageRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message PageResponse {
+  string next_page_token = 1;
+  int32 total_size = 2;
+}
+
+// RFC 9457 problem detail, as carried on the REST surface. The canonical
+// form of an error is Response{code, reason} -- this is its projection.
+message Problem {
+  string type = 1;
+  string title = 2;
+  int32 status = 3;
+  string detail = 4;
+  string instance = 5;
+
+  // The machine-readable reason. A client branches on THIS, never on
+  // `title` or `detail`, which get reworded.
+  string reason = 6;
+
+  map<string, string> metadata = 7;
+}

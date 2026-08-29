@@ -1,0 +1,30 @@
+version: v2
+
+# One workspace, several modules. Each module owns its own protos and its own
+# generated Go, which is how the dependency rule (§10) is enforced by layout
+# rather than by discipline: core cannot import the auth annotation because it
+# lives in a different module.
+modules:
+  - path: api
+    name: buf.build/darmawan01/interchange
+  - path: auth/api
+    name: buf.build/darmawan01/interchange-auth
+  - path: errors/api
+    name: buf.build/darmawan01/interchange-errors
+  - path: tools/api
+    name: buf.build/darmawan01/interchange-cli
+  - path: examples/catalog/api
+    name: buf.build/darmawan01/catalog
+
+deps:
+  - buf.build/googleapis/googleapis    # google.api.http, field_behavior
+  - buf.build/bufbuild/protovalidate   # declarative field rules
+
+lint:
+  use: [STANDARD]
+
+breaking:
+  # WIRE_JSON, not FILE: allows refactors that keep both the binary wire form
+  # and the JSON field names compatible. FILE is stricter than a public JSON
+  # surface actually requires (§08).
+  use: [WIRE_JSON]

@@ -1,0 +1,19 @@
+go 1.25.0
+
+// One repo, many modules. The layout is the dependency rule: core cannot
+// import a broker client because a broker client lives in another module,
+// and hack/depcheck.sh asserts it stayed that way.
+use (
+	.
+	./auth
+	./binding/rest
+	./driver/mqtt
+	./driver/nats
+	./driver/ws
+	./errors
+	./examples/catalog
+	./frontend/dsl
+	./frontend/openapi
+	./tools
+	./validate
+)

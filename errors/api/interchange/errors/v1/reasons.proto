@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package interchange.errors.v1;
+
+// A closed, append-only enum of machine-readable reasons. A client branches
+// on the reason instead of pattern-matching English that gets reworded next
+// sprint (§06). Renumbering is breaking; append only.
+enum ErrorReason {
+  ERROR_REASON_UNSPECIFIED = 0;
+  ERROR_REASON_INVALID_ARGUMENT = 1;
+  ERROR_REASON_UNAUTHENTICATED = 2;
+  ERROR_REASON_PERMISSION_DENIED = 3;
+  ERROR_REASON_NOT_FOUND = 4;
+  ERROR_REASON_ALREADY_EXISTS = 5;
+  ERROR_REASON_FAILED_PRECONDITION = 6;
+  ERROR_REASON_RESOURCE_EXHAUSTED = 7;
+  ERROR_REASON_DEADLINE_EXCEEDED = 8;
+  ERROR_REASON_UNAVAILABLE = 9;
+  ERROR_REASON_INTERNAL = 10;
+  ERROR_REASON_ABORTED = 11;
+  ERROR_REASON_CANCELED = 12;
+  ERROR_REASON_UNIMPLEMENTED = 13;
+}
