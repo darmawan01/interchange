@@ -79,6 +79,29 @@ unmarshal. The procedure already names the type — the generated dispatch knows
 lets a receiver discard a replay without the handler ever seeing it. This is the single field that
 makes a bus binding safe to run at QoS 1.
 
+## How the three messages share a channel
+
+The envelope shapes above are fixed, and none of them is self-describing. On a transport with no
+headers a receiver still has to tell a whole `Request` from one chunk of a large one — so the
+engine prefixes a **one-byte discriminator** outside the protobuf:
+
+```
+  ┌──────┬────────────────────────────┐
+  │ kind │ marshalled envelope        │
+  └──────┴────────────────────────────┘
+    0x01   Request
+    0x02   Response
+    0x03   Frame
+```
+
+That is the entire wire format the message engine owns. It is documented here because any
+non-Go implementation of a driver has to agree with it.
+
+**Chunking works on the framed bytes, not the message.** A payload over the driver's `MaxPayload`
+is split into `Frame`s whose payloads concatenate back into `[kind][envelope]` — so the receiver
+unframes the reassembly exactly as if it had arrived whole, and nothing above the engine has a
+chunked code path. The terminating `KIND_END` frame carries the chunk count in `sequence`.
+
 ---
 
 > **The envelope is not a new wire format.** Over HTTP it is never serialized — the Connect binding
