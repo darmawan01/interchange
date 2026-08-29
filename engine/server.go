@@ -34,13 +34,13 @@ type Server struct {
 }
 
 type serverConfig struct {
-	logger      *slog.Logger
-	expose      transportv1.Transport
-	concurrency int
-	maxMessage  int
-	reasmTTL    time.Duration
-	dedupeTTL   time.Duration
-	replyTimout time.Duration
+	logger       *slog.Logger
+	expose       transportv1.Transport
+	concurrency  int
+	maxMessage   int
+	reasmTTL     time.Duration
+	dedupeTTL    time.Duration
+	replyTimeout time.Duration
 }
 
 // ServerOption configures a Server.
@@ -63,6 +63,13 @@ func WithConcurrency(n int) ServerOption {
 	return func(c *serverConfig) { c.concurrency = n }
 }
 
+// WithReplyTimeout bounds sending a reply when the request carried no
+// deadline. A request that carried one is bounded by that instead: the caller
+// said when it gives up, and there is no reason to keep writing past it.
+func WithReplyTimeout(d time.Duration) ServerOption {
+	return func(c *serverConfig) { c.replyTimeout = d }
+}
+
 // WithMaxMessage caps a reassembled message. Zero means unlimited. Set it on
 // any transport reachable by something you do not trust: chunking otherwise
 // lets a peer stream an unbounded body into memory a chunk at a time.
@@ -74,11 +81,11 @@ func WithMaxMessage(n int) ServerOption {
 func NewServer(drv interchange.Driver, reg *interchange.Registry, opts ...ServerOption) *Server {
 	caps := drv.Caps()
 	cfg := serverConfig{
-		logger:      slog.Default(),
-		expose:      caps.Transport,
-		reasmTTL:    30 * time.Second,
-		dedupeTTL:   2 * time.Minute,
-		replyTimout: 30 * time.Second,
+		logger:       slog.Default(),
+		expose:       caps.Transport,
+		reasmTTL:     30 * time.Second,
+		dedupeTTL:    2 * time.Minute,
+		replyTimeout: 30 * time.Second,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -303,16 +310,23 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) error {
 	replyTo := md.Get(interchange.MetaReplyTo)
 	md.Del(interchange.MetaReplyTo)
 
+	// The caller's deadline bounds writing the reply as well as running the
+	// handler. Past it nobody is reading.
+	var deadline time.Time
+	if ms := req.GetDeadlineUnixMs(); ms > 0 {
+		deadline = time.UnixMilli(ms)
+	}
+
 	// Replay suppression, enabled only where the transport needs it.
 	var entry *dedupeEntry
 	if s.dedupe != nil && req.GetCorrelationId() != "" {
 		e, claimed := s.dedupe.begin(req.GetCorrelationId())
 		if !claimed {
-			cached, ok := e.wait(s.cfg.replyTimout)
+			cached, ok := e.wait(s.cfg.replyTimeout)
 			if !ok {
 				return errors.New("engine: a redelivery arrived while the original call was still running")
 			}
-			return s.replayCached(in, replyTo, cached)
+			return s.replayCached(in, replyTo, cached, deadline)
 		}
 		entry = e
 	}
@@ -325,7 +339,7 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) error {
 			s.dedupe.abandon(req.GetCorrelationId(), entry)
 		}
 	}
-	if err := s.reply(in, replyTo, resp); err != nil {
+	if err := s.reply(in, replyTo, resp, deadline); err != nil {
 		s.cfg.logger.Warn("engine: reply failed",
 			slog.String("procedure", req.GetProcedure()),
 			slog.String("err", err.Error()))
@@ -334,12 +348,12 @@ func (s *Server) serve(req *transportv1.Request, in interchange.Inbound) error {
 	return nil
 }
 
-func (s *Server) replayCached(in interchange.Inbound, replyTo string, cached []byte) error {
+func (s *Server) replayCached(in interchange.Inbound, replyTo string, cached []byte, deadline time.Time) error {
 	var resp transportv1.Response
 	if err := proto.Unmarshal(cached, &resp); err != nil {
 		return err
 	}
-	if err := s.reply(in, replyTo, &resp); err != nil {
+	if err := s.reply(in, replyTo, &resp, deadline); err != nil {
 		s.cfg.logger.Warn("engine: replayed reply failed", slog.String("err", err.Error()))
 		return err
 	}
@@ -396,6 +410,16 @@ func (s *Server) dispatch(req *transportv1.Request, md interchange.Metadata) *tr
 	}
 }
 
+func replyContext(deadline time.Time, fallback time.Duration) (context.Context, context.CancelFunc) {
+	if !deadline.IsZero() {
+		return context.WithDeadline(context.Background(), deadline)
+	}
+	if fallback > 0 {
+		return context.WithTimeout(context.Background(), fallback)
+	}
+	return context.WithCancel(context.Background())
+}
+
 func errorResponse(correlationID string, err error) *transportv1.Response {
 	return &transportv1.Response{
 		CorrelationId: correlationID,
@@ -406,7 +430,7 @@ func errorResponse(correlationID string, err error) *transportv1.Response {
 	}
 }
 
-func (s *Server) reply(in interchange.Inbound, replyTo string, resp *transportv1.Response) error {
+func (s *Server) reply(in interchange.Inbound, replyTo string, resp *transportv1.Response, deadline time.Time) error {
 	framed, err := frame(kindResponse, resp)
 	if err != nil {
 		return err
@@ -423,7 +447,12 @@ func (s *Server) reply(in interchange.Inbound, replyTo string, resp *transportv1
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.replyTimout)
+	// The caller's deadline is the honest bound on a reply: past it there is
+	// nobody left to read one. A chunked reply is many round trips, so a
+	// fixed budget would expire mid-message and waste every frame already
+	// sent -- and it would be the wrong number for both a one-frame reply and
+	// a five-hundred-frame one.
+	ctx, cancel := replyContext(deadline, s.cfg.replyTimeout)
 	defer cancel()
 
 	for _, part := range parts {

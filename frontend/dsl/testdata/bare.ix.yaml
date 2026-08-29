@@ -1,0 +1,21 @@
+interchange: v1
+package: catalog.v1
+file: bare
+
+# The same contract as catalog.ix.yaml, with nothing annotated inline: every
+# annotation arrives from the sidecar.
+messages:
+  PingRequest:
+    fields:
+      nonce: {type: string, n: 1}
+
+  PingResponse:
+    fields:
+      nonce: {type: string, n: 1}
+
+services:
+  PingService:
+    rpcs:
+      Ping:
+        request: PingRequest
+        response: PingResponse

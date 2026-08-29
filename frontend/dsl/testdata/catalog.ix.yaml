@@ -1,0 +1,154 @@
+interchange: v1
+package: catalog.v1
+file: catalog
+
+enums:
+  # The lifecycle of a provider.
+  ProviderStatus:
+    values:
+      PROVIDER_STATUS_UNSPECIFIED: 0
+      PROVIDER_STATUS_ACTIVE: 1
+      PROVIDER_STATUS_SUSPENDED: 2
+
+messages:
+  # A provider in the catalog.
+  Provider:
+    fields:
+      # Ids are strings -- ULID or KSUID, type-prefixed. Never integers: an
+      # integer id leaks row counts and cannot be minted by a client.
+      provider_id: {type: string, n: 1}
+      tenant_id: {type: string, n: 2}
+      display_name: {type: string, n: 3}
+      status: {type: ProviderStatus, n: 4}
+      created_at: {type: google.protobuf.Timestamp, n: 5}
+      labels: {type: "map<string, string>", n: 6}
+      # Absent and empty are different things for a description.
+      description: {type: string, n: 7, optional: true}
+      endpoint: {type: Provider.Endpoint, n: 8}
+    messages:
+      # Where the provider is reached. Nested because it is meaningless
+      # outside a Provider.
+      Endpoint:
+        fields:
+          url: {type: string, n: 1}
+          scheme: {type: Provider.Endpoint.Scheme, n: 2}
+        enums:
+          Scheme:
+            values:
+              SCHEME_UNSPECIFIED: 0
+              SCHEME_HTTPS: 1
+              SCHEME_GRPC: 2
+
+  ListProvidersRequest:
+    fields:
+      tenant_id: {type: string, n: 1}
+      page: {type: interchange.common.v1.PageRequest, n: 2}
+
+  ListProvidersResponse:
+    fields:
+      providers: {type: Provider, n: 1, repeated: true}
+      next_page_token: {type: string, n: 2}
+
+  GetProviderRequest:
+    fields:
+      tenant_id: {type: string, n: 1}
+      provider_id: {type: string, n: 2}
+
+  GetProviderResponse:
+    fields:
+      provider: {type: Provider, n: 1}
+
+  CreateProviderRequest:
+    fields:
+      tenant_id: {type: string, n: 1}
+      display_name: {type: string, n: 2}
+
+  CreateProviderResponse:
+    fields:
+      provider: {type: Provider, n: 1}
+
+  SyncProviderRequest:
+    fields:
+      tenant_id: {type: string, n: 1}
+      provider_id: {type: string, n: 2}
+
+  SyncProviderResponse:
+    fields:
+      job_id: {type: string, n: 1}
+
+  ReconcileRequest:
+    fields:
+      tenant_id: {type: string, n: 1}
+
+  ReconcileResponse:
+    fields:
+      reconciled: {type: int32, n: 1}
+
+services:
+  # The worked example: one service, five roads, one handler.
+  CatalogService:
+    # Every method travels RPC and REST unless it says otherwise. Declaring
+    # the default here means a per-method annotation is a deliberate,
+    # reviewable exception rather than boilerplate on every RPC.
+    transports: [RPC, REST]
+    rpcs:
+      # ListProviders returns every provider registered to a tenant.
+      ListProviders:
+        request: ListProvidersRequest
+        response: ListProvidersResponse
+        http: {get: /v1/catalog/providers}
+        idempotency: no_side_effects
+        transports: [RPC, REST, BUS]
+        group: catalog
+        auth:
+          auth_types: [SESSION, API_KEY, WORKLOAD]
+          permission: {resource: providers, verb: READ}
+        cli: {path: [catalog, providers]}
+
+      GetProvider:
+        request: GetProviderRequest
+        response: GetProviderResponse
+        http: {get: "/v1/catalog/providers/{provider_id}"}
+        idempotency: no_side_effects
+        transports: [RPC, REST, BUS]
+        group: catalog
+        auth:
+          auth_types: [SESSION, API_KEY, WORKLOAD]
+          permission: {resource: providers, verb: READ}
+        cli: {path: [catalog, provider], args: [provider_id]}
+
+      CreateProvider:
+        request: CreateProviderRequest
+        response: CreateProviderResponse
+        http: {post: /v1/catalog/providers}
+        transports: [RPC, REST, BUS]
+        group: catalog
+        auth:
+          auth_types: [SESSION, WORKLOAD]
+          permission: {resource: providers, verb: CREATE}
+        cli: {path: [catalog, provider, create]}
+
+      # SyncProvider is service-to-service work. It is on the bus and nowhere
+      # else: no browser needs it, and a partner certainly does not.
+      SyncProvider:
+        request: SyncProviderRequest
+        response: SyncProviderResponse
+        transports: [BUS]
+        group: catalog
+        auth:
+          auth_types: [WORKLOAD]
+          permission: {resource: providers, verb: EDIT}
+        cli: {path: [catalog, provider, sync]}
+
+      # Reconcile is cross-tenant maintenance. `internal` keeps it off every
+      # public binding; `platform` says the request carries no tenant.
+      Reconcile:
+        request: ReconcileRequest
+        response: ReconcileResponse
+        internal: true
+        transports: [BUS]
+        auth:
+          auth_types: [WORKLOAD]
+          permission: {resource: providers, verb: EDIT}
+          platform: true
+        cli: {skip: true}

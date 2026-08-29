@@ -1,4 +1,4 @@
-go 1.25.0
+go 1.25.7
 
 // One repo, many modules. The layout is the dependency rule: core cannot
 // import a broker client because a broker client lives in another module,

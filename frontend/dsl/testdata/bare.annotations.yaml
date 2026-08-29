@@ -1,0 +1,12 @@
+# The universal fallback: annotations keyed by procedure, in a file of their
+# own. Same vocabulary as the inline form.
+procedures:
+  /catalog.v1.PingService/Ping:
+    transports: [RPC, REST, BUS]
+    group: ping
+    http: {get: /v1/ping}
+    idempotency: no_side_effects
+    auth:
+      auth_types: [SESSION, WORKLOAD]
+      permission: {resource: ping, verb: READ}
+    cli: {path: [ping]}

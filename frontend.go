@@ -25,6 +25,11 @@ type Sources struct {
 	// Sidecar is the optional annotations file (§09) -- the universal
 	// fallback for formats with nowhere to put an annotation.
 	Sidecar []byte
+
+	// SidecarPath names the sidecar for diagnostics. A diagnostic without a
+	// file and a line is barely a diagnostic, and a sidecar's mistakes are
+	// exactly the ones a reader needs pointing at.
+	SidecarPath string
 }
 
 // Options configures a frontend run.
@@ -35,6 +40,15 @@ type Options struct {
 
 	// GoPackagePrefix is the go_package option prefix for emitted files.
 	GoPackagePrefix string
+
+	// Deps are descriptors the sources may reference by fully-qualified name:
+	// the annotation protos, and an adopter's own existing tree.
+	//
+	// A frontend must not read the filesystem, so without this the only
+	// resolvable external types are the ones linked into whatever binary is
+	// doing the parsing -- which works for the annotation set and for nothing
+	// an adopter wrote.
+	Deps *descriptorpb.FileDescriptorSet
 
 	// Params are frontend-specific settings from interchange.yaml.
 	Params map[string]string
@@ -129,6 +143,20 @@ type Frontend interface {
 	// Parse transforms sources into descriptors. It MUST return an error --
 	// never a partial result -- for anything it cannot represent.
 	Parse(ctx context.Context, src Sources, opt Options) (*descriptorpb.FileDescriptorSet, Diagnostics, error)
+}
+
+// SourceEmitter is an optional capability: a frontend that can render the
+// canonical .proto source for its input, not just the descriptors.
+//
+// The emitted proto is the artifact -- committed, reviewed, and under the
+// same drift gate as generated code (§09). A frontend that returns only
+// descriptors leaves the IR invisible, which is the thing that rule exists to
+// prevent, so `ix import` type-asserts for this and refuses to write a tree
+// without it.
+type SourceEmitter interface {
+	// ProtoSources renders the sources as formatted .proto files, keyed by
+	// the path each should be written to, relative to the api root.
+	ProtoSources(ctx context.Context, src Sources, opt Options) (map[string][]byte, Diagnostics, error)
 }
 
 var frontends = struct {
