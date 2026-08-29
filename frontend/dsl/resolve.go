@@ -45,21 +45,55 @@ type resolver struct {
 	c       *collector
 	pkg     string
 	symbols map[string]symbol
-	imports map[string]bool
+
+	// imports maps each derived import to the node that made it necessary,
+	// so an unresolvable one is reported where the reference is.
+	imports map[string]*yaml.Node
+
+	// deps are the descriptors the caller supplied. They are consulted
+	// before the process-wide registry, which is only a fallback.
+	deps *protoregistry.Files
 
 	// declared is shared across every source in the run.
 	declared map[string]declSite
 }
 
-func (c *collector) resolveFile(f *file, declared map[string]declSite) *resolver {
-	r := &resolver{c: c, pkg: f.pkg, symbols: map[string]symbol{}, imports: map[string]bool{}, declared: declared}
+func (c *collector) resolveFile(f *file, declared map[string]declSite, deps *protoregistry.Files) *resolver {
+	r := &resolver{
+		c:        c,
+		pkg:      f.pkg,
+		symbols:  map[string]symbol{},
+		imports:  map[string]*yaml.Node{},
+		deps:     deps,
+		declared: declared,
+	}
 	r.collect(f.messages, f.enums, f.pkg)
 	r.checkScopeDuplicates(f.messages, f.enums, "document")
 
 	r.walkMessages(f.messages, nil)
 	r.checkEnums(f.enums)
 	r.resolveServices(f)
+	r.checkImports()
 	return r
+}
+
+// checkImports catches the case where a reference or an annotation implies a
+// proto file nobody handed us. Saying so here, at the reference, beats a
+// compiler error against generated source the author never wrote.
+func (r *resolver) checkImports() {
+	for path, node := range r.imports {
+		if strings.HasPrefix(path, "google/protobuf/") {
+			continue // protocompile carries the well-known types itself
+		}
+		if _, err := r.deps.FindFileByPath(path); err == nil {
+			continue
+		}
+		if _, err := protoregistry.GlobalFiles.FindFileByPath(path); err == nil {
+			continue
+		}
+		r.c.errorf(node, "pass it in Options.Deps -- `ix` supplies the annotation protos for every module you have installed",
+			"needs %s, which is not among the descriptors provided", path)
+	}
 }
 
 func (r *resolver) collect(msgs []*message, enums []*enum, prefix string) {
@@ -138,7 +172,7 @@ func (r *resolver) resolveFieldType(f *field, scope []string) {
 		f.rendered = t
 		return
 	}
-	if _, ok := r.lookup(t, scope); !ok {
+	if _, ok := r.lookup(t, scope, f.typeNode); !ok {
 		r.unknownType(f.typeNode, t)
 		return
 	}
@@ -159,7 +193,7 @@ func (r *resolver) resolveMap(f *field, t string, scope []string) {
 	switch {
 	case scalars[v]:
 	default:
-		if _, ok := r.lookup(v, scope); !ok {
+		if _, ok := r.lookup(v, scope, f.typeNode); !ok {
 			r.unknownType(f.typeNode, v)
 		}
 	}
@@ -177,7 +211,7 @@ func (r *resolver) resolveMap(f *field, t string, scope []string) {
 // declared in this file, then falls back to the linked descriptor registry
 // for a fully-qualified name from another proto file -- recording the import
 // that reference implies.
-func (r *resolver) lookup(name string, scope []string) (symbol, bool) {
+func (r *resolver) lookup(name string, scope []string, at *yaml.Node) (symbol, bool) {
 	for i := len(scope); i >= 0; i-- {
 		cand := r.pkg
 		if i > 0 {
@@ -191,19 +225,29 @@ func (r *resolver) lookup(name string, scope []string) (symbol, bool) {
 	if s, ok := r.symbols[r.pkg+"."+name]; ok {
 		return s, true
 	}
-	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(name))
+	d, err := r.deps.FindDescriptorByName(protoreflect.FullName(name))
 	if err != nil {
-		return symbol{}, false
+		if d, err = protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(name)); err != nil {
+			return symbol{}, false
+		}
 	}
 	switch d.(type) {
 	case protoreflect.MessageDescriptor:
-		r.imports[d.ParentFile().Path()] = true
+		r.need(d.ParentFile().Path(), at)
 		return symbol{}, true
 	case protoreflect.EnumDescriptor:
-		r.imports[d.ParentFile().Path()] = true
+		r.need(d.ParentFile().Path(), at)
 		return symbol{isEnum: true}, true
 	}
 	return symbol{}, false
+}
+
+// need records an import and the node that first required it.
+func (r *resolver) need(path string, n *yaml.Node) {
+	if prev, ok := r.imports[path]; ok && prev != nil {
+		return
+	}
+	r.imports[path] = n
 }
 
 func (r *resolver) unknownType(n *yaml.Node, t string) {
@@ -240,12 +284,12 @@ func (r *resolver) checkEnums(enums []*enum) {
 func (r *resolver) resolveServices(f *file) {
 	for _, s := range f.services {
 		if s.annot != nil && len(s.annot.transports) > 0 {
-			r.imports[importTransports] = true
+			r.need(importTransports, s.node)
 		}
 		for _, m := range s.rpcs {
 			r.checkRPCType(m.request, m.reqNode, "request")
 			r.checkRPCType(m.response, m.respNode, "response")
-			r.annotationImports(m.annot)
+			r.annotationImports(m.annot, m.node)
 			if m.annot == nil || m.annot.auth == nil {
 				r.c.list = append(r.c.list, warning(r.c.path, m.node,
 					"rpc "+s.name+"."+m.name+": no authorization declared",
@@ -263,7 +307,7 @@ func (r *resolver) checkRPCType(name string, n *yaml.Node, what string) {
 		r.c.errorf(n, "an RPC takes and returns a message, not a scalar", "%s type %q is a scalar", what, name)
 		return
 	}
-	s, ok := r.lookup(name, nil)
+	s, ok := r.lookup(name, nil, n)
 	if !ok {
 		r.c.errorf(n, "declare it under `messages:` -- an RPC's "+what+" must be a message in this file or a fully-qualified message from a known proto file",
 			"unknown %s message %q", what, name)
@@ -274,21 +318,25 @@ func (r *resolver) checkRPCType(name string, n *yaml.Node, what string) {
 	}
 }
 
-func (r *resolver) annotationImports(a *annotations) {
+// annotationImports records what an RPC's annotations need. The location is
+// the RPC, not the annotation: a merged annotation's node can belong to the
+// sidecar, and a diagnostic that names one file and points into another is
+// worse than one that is merely less precise.
+func (r *resolver) annotationImports(a *annotations, at *yaml.Node) {
 	if a == nil {
 		return
 	}
 	if len(a.transports) > 0 || a.internalSet {
-		r.imports[importTransports] = true
+		r.need(importTransports, at)
 	}
 	if a.http != nil {
-		r.imports[importHTTP] = true
+		r.need(importHTTP, at)
 	}
 	if a.auth != nil {
-		r.imports[importAuth] = true
+		r.need(importAuth, at)
 	}
 	if a.cli != nil {
-		r.imports[importCLI] = true
+		r.need(importCLI, at)
 	}
 }
 

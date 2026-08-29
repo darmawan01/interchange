@@ -191,7 +191,8 @@ procedures:
     cli: {path: [catalog, providers]}
 ```
 
-It arrives as `Sources.Sidecar`. Two rules:
+It arrives as `Sources.Sidecar`, named by `Sources.SidecarPath` so its diagnostics point at it by
+name. Two rules:
 
 - **An annotation set both inline and in the sidecar is an error**, not a precedence rule. Silent
   precedence is how a security posture gets overwritten by a file nobody was reading.
@@ -220,7 +221,7 @@ error with a line, a column and a hint rather than being silently dropped.
 | `reserved` ranges and names, `allow_alias`, `deprecated` | Say it in proto. |
 | `google.api.http` `additional_bindings`, `response_body` | One route per RPC; split the RPC, or say it in proto. |
 | proto2, groups, custom options beyond the five above | Say it in proto. |
-| A type from a proto file the toolchain has not linked in | Declare it in the DSL, or say it in proto. |
+| A type from a proto file that is neither in `Options.Deps` nor linked into the importing binary | Pass its descriptors in `Options.Deps`, declare it in the DSL, or say it in proto. |
 | Cross-references between two DSL files | Each DSL file resolves on its own. Put the shared types in one file, or say it in proto. |
 
 "Say it in proto" is cheap here precisely because the emitted proto is the artifact: run
@@ -238,15 +239,34 @@ import (
 dsl.Register() // also done by the package's init
 
 f := dsl.New()
-set, diags, err := f.Parse(ctx, interchange.Sources{
-    Paths:   []string{"catalog.ix.yaml"},
-    Content: map[string][]byte{"catalog.ix.yaml": b},
-    Sidecar: sidecarBytes,
-}, interchange.Options{GoPackagePrefix: "example.com/gen/go"})
+src := interchange.Sources{
+    Paths:       []string{"catalog.ix.yaml"},
+    Content:     map[string][]byte{"catalog.ix.yaml": b},
+    Sidecar:     sidecarBytes,
+    SidecarPath: "catalog.annotations.yaml",
+}
+opt := interchange.Options{
+    GoPackagePrefix: "example.com/gen/go",
+
+    // The descriptors the sources may reference by full name: the annotation
+    // protos for the modules you have installed, and your own existing tree.
+    Deps: deps,
+}
+
+set, diags, err := f.Parse(ctx, src, opt)
 ```
 
-`Parse` returns descriptors. To get the `.proto` source that `ix import` writes, assert the
-frontend to `dsl.SourceEmitter` and call `ProtoSources` with the same arguments.
+`Parse` returns descriptors. To get the `.proto` source that `ix import` writes, assert the frontend
+to `interchange.SourceEmitter` and call `ProtoSources(ctx, src, opt)` — `ix import` does exactly
+that, and refuses to write a tree without it.
+
+**`Options.Deps` is how the annotations arrive.** External types resolve against `Deps` first and
+fall back to the descriptors linked into the importing binary, which keeps a no-Deps caller working
+for core's own `transports` and `internal` and for `google.api.http`. It does *not* cover
+`(interchange.auth.v1.auth)` or `(interchange.cli.v1.command)`: those belong to optional modules,
+and a frontend that linked them in to emit them would make an optional module mandatory. Without
+their descriptors, an `auth:` or `cli:` block is a loud error at the RPC naming the missing file —
+never a silently dropped annotation.
 
 Two notes on the emitted set: it includes the transitive imports (dependencies first, the way
 `protoc --include_imports` orders them) so a consumer can build a registry in one pass, and it
@@ -261,6 +281,6 @@ omits both by default.
   source would be useless to the person holding the YAML.
 - **Nothing is decoded into a Go map.** Randomised map iteration between the source and a
   committed artifact is exactly the kind of nondeterminism a drift gate cannot survive.
-- **The annotation descriptors are linked in.** A frontend is handed its sources, never a
-  filesystem, so the definition of `(interchange.auth.v1.auth)` can only come from the descriptor
-  registry of the process doing the import.
+- **The optional modules are not linked in.** `Options.Deps` carries the annotation descriptors;
+  the frontend's own import graph contains neither `/auth` nor `/tools`, and `internal/nolink` is a
+  test package that exists to prove it.

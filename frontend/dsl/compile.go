@@ -11,16 +11,15 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	// The annotation descriptors have to be linked in: a frontend is handed
-	// its sources, never a filesystem, so the only place the definition of
-	// (interchange.auth.v1.auth) can come from is the descriptor registry of
-	// the process doing the import.
+	// Options.Deps is where a caller hands over the descriptors its sources
+	// reference. These blank imports are the fallback for a caller that
+	// passes none -- core's own protos and upstream's google.api, nothing
+	// from an optional module: a frontend that linked /auth in to emit an
+	// auth annotation would make the optional module mandatory.
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 
-	_ "github.com/darmawan01/interchange/auth/gen/go/interchange/auth/v1"
 	_ "github.com/darmawan01/interchange/gen/go/interchange/common/v1"
 	_ "github.com/darmawan01/interchange/gen/go/interchange/transport/v1"
-	_ "github.com/darmawan01/interchange/tools/gen/go/interchange/cli/v1"
 )
 
 // compile turns the emitted .proto source into descriptors. Going through a
@@ -28,7 +27,7 @@ import (
 // makes the output *canonical*: option values are resolved by the same code
 // protoc uses, so a DSL user's descriptors are indistinguishable from a proto
 // user's.
-func compile(ctx context.Context, sources map[string][]byte) (*descriptorpb.FileDescriptorSet, error) {
+func compile(ctx context.Context, sources map[string][]byte, deps *protoregistry.Files) (*descriptorpb.FileDescriptorSet, error) {
 	paths := make([]string, 0, len(sources))
 	for p := range sources {
 		paths = append(paths, p)
@@ -38,6 +37,9 @@ func compile(ctx context.Context, sources map[string][]byte) (*descriptorpb.File
 	res := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
 		if b, ok := sources[path]; ok {
 			return protocompile.SearchResult{Source: bytes.NewReader(b)}, nil
+		}
+		if fd, err := deps.FindFileByPath(path); err == nil {
+			return protocompile.SearchResult{Desc: fd}, nil
 		}
 		fd, err := protoregistry.GlobalFiles.FindFileByPath(path)
 		if err != nil {
@@ -67,12 +69,12 @@ func compile(ctx context.Context, sources map[string][]byte) (*descriptorpb.File
 		}
 		seen[fd.Path()] = true
 		imps := fd.Imports()
-		deps := make([]protoreflect.FileDescriptor, 0, imps.Len())
+		imported := make([]protoreflect.FileDescriptor, 0, imps.Len())
 		for i := range imps.Len() {
-			deps = append(deps, imps.Get(i).FileDescriptor)
+			imported = append(imported, imps.Get(i).FileDescriptor)
 		}
-		sort.Slice(deps, func(i, j int) bool { return deps[i].Path() < deps[j].Path() })
-		for _, d := range deps {
+		sort.Slice(imported, func(i, j int) bool { return imported[i].Path() < imported[j].Path() })
+		for _, d := range imported {
 			add(d)
 		}
 		set.File = append(set.File, protodesc.ToFileDescriptorProto(fd))

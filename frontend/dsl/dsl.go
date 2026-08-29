@@ -19,12 +19,22 @@ import (
 	"strings"
 
 	interchange "github.com/darmawan01/interchange"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"gopkg.in/yaml.v3"
 )
 
-// Frontend implements interchange.Frontend for the DSL.
+// Frontend implements interchange.Frontend for the DSL, and
+// interchange.SourceEmitter: the .proto source is the artifact `ix import`
+// commits, and a frontend that returned only descriptors would leave the IR
+// invisible.
 type Frontend struct{}
+
+var (
+	_ interchange.Frontend      = (*Frontend)(nil)
+	_ interchange.SourceEmitter = (*Frontend)(nil)
+)
 
 // New returns the DSL frontend.
 func New() interchange.Frontend { return &Frontend{} }
@@ -86,7 +96,11 @@ func (f *Frontend) Parse(ctx context.Context, src interchange.Sources, opt inter
 	if err != nil {
 		return nil, diags, err
 	}
-	set, cerr := compile(ctx, sources)
+	deps, derr := depRegistry(opt)
+	if derr != nil {
+		return nil, diags, derr
+	}
+	set, cerr := compile(ctx, sources, deps)
 	if cerr != nil {
 		// Reaching here means the DSL validated a construct it then emitted
 		// wrongly. That is a bug in this frontend, not in the user's file, and
@@ -106,17 +120,23 @@ func (f *Frontend) Parse(ctx context.Context, src interchange.Sources, opt inter
 // ProtoSources renders the .proto tree for the given sources, keyed by the
 // path each file takes in the canonical tree. `ix import` writes these; they
 // are committed and reviewed, and the drift gate regenerates them.
-//
-// This is separate from Parse because interchange.Frontend has no channel for
-// the source artifact -- see README.
-func (f *Frontend) ProtoSources(src interchange.Sources, opt interchange.Options) (map[string][]byte, interchange.Diagnostics, error) {
+func (f *Frontend) ProtoSources(_ context.Context, src interchange.Sources, opt interchange.Options) (map[string][]byte, interchange.Diagnostics, error) {
 	return generate(src, opt)
 }
 
-// SourceEmitter is the optional interface `ix import` can assert on a
-// frontend that produces reviewable source alongside descriptors.
-type SourceEmitter interface {
-	ProtoSources(src interchange.Sources, opt interchange.Options) (map[string][]byte, interchange.Diagnostics, error)
+// depRegistry indexes the descriptors the caller supplied. A frontend must
+// not read the filesystem, so this is the only way an adopter's own protos
+// can be referenced -- and the only way the optional modules' annotations
+// arrive without this module linking them in.
+func depRegistry(opt interchange.Options) (*protoregistry.Files, error) {
+	if opt.Deps == nil || len(opt.Deps.File) == 0 {
+		return &protoregistry.Files{}, nil
+	}
+	files, err := protodesc.NewFiles(opt.Deps)
+	if err != nil {
+		return nil, fmt.Errorf("dsl: Options.Deps: %w", err)
+	}
+	return files, nil
 }
 
 func generate(src interchange.Sources, opt interchange.Options) (map[string][]byte, interchange.Diagnostics, error) {
@@ -127,16 +147,24 @@ func generate(src interchange.Sources, opt interchange.Options) (map[string][]by
 
 	// The sidecar is parsed first: its annotations have to be merged onto the
 	// RPCs before type resolution, so the imports it implies are derived too.
+	sidecarName := src.SidecarPath
+	if sidecarName == "" {
+		sidecarName = sidecarPath
+	}
 	var sidecar map[string]*annotations
 	if len(src.Sidecar) > 0 {
-		sc := &collector{path: sidecarPath}
+		sc := &collector{path: sidecarName}
 		var doc yaml.Node
 		if err := yaml.Unmarshal(src.Sidecar, &doc); err != nil {
-			sc.list = append(sc.list, yamlSyntax(sidecarPath, err))
+			sc.list = append(sc.list, yamlSyntax(sidecarName, err))
 		} else {
 			sidecar = sc.parseSidecar(&doc)
 		}
 		all = append(all, sc.list...)
+	}
+	deps, err := depRegistry(opt)
+	if err != nil {
+		return nil, all, err
 	}
 	used := map[string]bool{}
 	declared := map[string]declSite{}
@@ -161,9 +189,9 @@ func generate(src interchange.Sources, opt interchange.Options) (map[string][]by
 			// applies once Options supplied one.
 			c.list = dropMissingPackage(c.list)
 		}
-		applySidecar(c, f, sidecar, used)
+		applySidecar(c, f, sidecar, used, sidecarName)
 
-		r := c.resolveFile(f, declared)
+		r := c.resolveFile(f, declared, deps)
 		f.goPackage = goPackage(f, opt)
 		if prev, ok := emitted[protoPath(f)]; ok {
 			c.errorf(f.pkgNode, "give one of them a distinct `file:` -- otherwise the second emitted file silently replaces the first",
@@ -176,7 +204,7 @@ func generate(src interchange.Sources, opt interchange.Options) (map[string][]by
 		all = append(all, c.list...)
 	}
 
-	sc := &collector{path: sidecarPath}
+	sc := &collector{path: sidecarName}
 	for _, proc := range sortedKeys(sidecar) {
 		if !used[proc] {
 			sc.errorf(sidecar[proc].procNode, "check the package, service and method names -- a sidecar entry that matches nothing is an annotation nobody applied",
@@ -191,6 +219,8 @@ func generate(src interchange.Sources, opt interchange.Options) (map[string][]by
 	return out, all, nil
 }
 
+// sidecarPath is the placeholder for a caller that supplied sidecar bytes
+// without naming the file.
 const sidecarPath = "(sidecar)"
 
 // Diagnostics are output too: two unmatched sidecar entries must report in
@@ -204,13 +234,13 @@ func sortedKeys(m map[string]*annotations) []string {
 	return out
 }
 
-func applySidecar(c *collector, f *file, sidecar map[string]*annotations, used map[string]bool) {
+func applySidecar(c *collector, f *file, sidecar map[string]*annotations, used map[string]bool, sidecarName string) {
 	if len(sidecar) == 0 {
 		return
 	}
 	// Conflicts are reported against the sidecar, because that is where the
 	// node the diagnostic points at actually lives.
-	sc := &collector{path: sidecarPath}
+	sc := &collector{path: sidecarName}
 	defer func() { c.list = append(c.list, sc.list...) }()
 
 	for _, s := range f.services {
