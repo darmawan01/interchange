@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+// Annotated, but the permission does not name a verb: a typo that must not be
+// allowed to mint a phantom permission.
+package interchange.authtest.typo.v1;
+
+import "interchange/auth/v1/auth.proto";
+
+// Every real contract carries one -- buf's managed mode sets it -- and
+// protoc-gen-authz refuses a file without one, so the fixtures carry one too.
+option go_package = "github.com/darmawan01/interchange/auth/internal/fixture/gen/authtest/typo/v1;typov1";
+
+message TypoRequest {
+  string tenant_id = 1;
+}
+
+message TypoResponse {
+  string note = 1;
+}
+
+service TypoService {
+  rpc Broken(TypoRequest) returns (TypoResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION]
+      permission: {resource: "providers"}
+    };
+  }
+}

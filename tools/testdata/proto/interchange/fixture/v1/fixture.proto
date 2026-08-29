@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+// Package interchange.fixture.v1 is the input to the plugin golden tests. It
+// is deliberately awkward: every rule either plugin has -- service-level
+// default, per-method override, internal, idempotent, unannotated, skipped,
+// and fields no flag can carry -- is represented once.
+package interchange.fixture.v1;
+
+import "interchange/cli/v1/cli.proto";
+import "interchange/transport/v1/transports.proto";
+
+// FixtureService travels the bus by service-level default.
+service FixtureService {
+  option (interchange.transport.v1.service_transports) = {
+    on: [TRANSPORT_RPC, TRANSPORT_BUS]
+    group: "fixtures"
+  };
+
+  // GetItem reads one item. It inherits the service default and is
+  // idempotent, so the Connect binding may answer it with a cacheable GET.
+  rpc GetItem(GetItemRequest) returns (GetItemResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (interchange.cli.v1.command) = {
+      path: ["fixture", "items", "get"]
+      args: ["id"]
+      short: "Read one item"
+      long: "Read one item by id."
+    };
+  }
+
+  // PublishItem overrides the service default: brokers only, its own
+  // competing-consumer group.
+  rpc PublishItem(PublishItemRequest) returns (PublishItemResponse) {
+    option (interchange.transport.v1.transports) = {
+      on: [TRANSPORT_MQTT, TRANSPORT_BUS]
+      group: "publishers"
+    };
+    option (interchange.cli.v1.command) = {
+      path: ["fixture", "items", "publish"]
+      args: ["id"]
+      short: "Publish an item"
+    };
+  }
+
+  // Reindex is an operator RPC: mTLS only, and deliberately absent from the
+  // command tree.
+  rpc Reindex(ReindexRequest) returns (ReindexResponse) {
+    option (interchange.transport.v1.internal) = true;
+    option (interchange.cli.v1.command) = {skip: true};
+  }
+}
+
+// PlainService carries no annotation anywhere: its RPC takes the default
+// roads, and it is the CLI coverage report's unhappy case.
+service PlainService {
+  // Ping is the liveness probe.
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_BOOK = 1;
+  KIND_FILM = 2;
+}
+
+message Nested {
+  string note = 1;
+}
+
+message GetItemRequest {
+  string id = 1;
+  bool include_archived = 2;
+  int32 limit = 3;
+  Kind kind = 4;
+
+  // No flag can carry these two; --request-json can.
+  repeated string tags = 5;
+  Nested nested = 6;
+
+  optional string cursor = 7;
+}
+
+message GetItemResponse {
+  string id = 1;
+  Kind kind = 2;
+}
+
+message PublishItemRequest {
+  string id = 1;
+  double weight = 2;
+}
+
+message PublishItemResponse {
+  string id = 1;
+}
+
+message ReindexRequest {}
+
+message ReindexResponse {
+  int64 indexed = 1;
+}
+
+message PingRequest {}
+
+message PingResponse {
+  string status = 1;
+}

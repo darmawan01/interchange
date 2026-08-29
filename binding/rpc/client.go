@@ -13,10 +13,11 @@ import (
 // service that has generated clients should use them; this exists for `ix
 // dev`, for tests, and for tools that only have a descriptor.
 type Client struct {
-	http    connect.HTTPClient
-	baseURL string
-	codec   string
-	opts    []connect.ClientOption
+	http     connect.HTTPClient
+	baseURL  string
+	codec    string
+	opts     []connect.ClientOption
+	metadata []func(context.Context) (interchange.Metadata, error)
 }
 
 // ClientOption configures a Client.
@@ -25,6 +26,18 @@ type ClientOption func(*Client)
 // WithClientCodec picks the wire codec. Default: "proto".
 func WithClientCodec(name string) ClientOption {
 	return func(c *Client) { c.codec = name }
+}
+
+// WithMetadata contributes metadata to every call: credentials, tenant hint,
+// trace context. It mirrors the bus client's option of the same name, so
+// wiring a client is the same work whichever road it takes.
+func WithMetadata(f func(context.Context) (interchange.Metadata, error)) ClientOption {
+	return func(c *Client) { c.metadata = append(c.metadata, f) }
+}
+
+// WithStaticMetadata is WithMetadata for values that do not change.
+func WithStaticMetadata(md interchange.Metadata) ClientOption {
+	return WithMetadata(func(context.Context) (interchange.Metadata, error) { return md, nil })
 }
 
 // WithClientOptions passes options through to connect-go.
@@ -42,9 +55,21 @@ func NewClient(httpClient connect.HTTPClient, baseURL string, opts ...ClientOpti
 	return c
 }
 
-// Invoke calls one method. md supplies the procedure and the response
-// factory; nothing else about the service is needed.
-func (c *Client) Invoke(ctx context.Context, md *interchange.MethodDesc, in, out proto.Message, header interchange.Metadata) error {
+// Invoke calls a procedure. The response is decoded into out, so no
+// descriptor is needed -- which is what lets a generated CLI drive this
+// client and a bus client interchangeably: the two Invoke signatures are the
+// same.
+func (c *Client) Invoke(ctx context.Context, procedure string, in, out proto.Message) error {
+	return c.InvokeMethod(ctx, &interchange.MethodDesc{
+		Procedure:   procedure,
+		NewResponse: func() proto.Message { return out.ProtoReflect().New().Interface() },
+	}, in, out, nil)
+}
+
+// InvokeMethod calls one method with per-call metadata. md supplies the
+// procedure, the response factory and the idempotency hint that lets an
+// idempotent method travel as a cacheable GET.
+func (c *Client) InvokeMethod(ctx context.Context, md *interchange.MethodDesc, in, out proto.Message, header interchange.Metadata) error {
 	inner, err := interchange.CodecFor(c.codec)
 	if err != nil {
 		return err
@@ -58,6 +83,15 @@ func (c *Client) Invoke(ctx context.Context, md *interchange.MethodDesc, in, out
 
 	client := connect.NewClient[anyMessage, anyMessage](c.http, c.baseURL+md.Procedure, opts...)
 	req := connect.NewRequest(&anyMessage{msg: in})
+	for _, f := range c.metadata {
+		extra, err := f(ctx)
+		if err != nil {
+			return interchange.WrapError(interchange.CodeUnauthenticated, err)
+		}
+		for k, v := range extra {
+			req.Header().Set(k, v)
+		}
+	}
 	for k, v := range header {
 		req.Header().Set(k, v)
 	}

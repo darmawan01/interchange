@@ -1,0 +1,18 @@
+# Generates the Go types for this module's own annotation, `(cli.command)`.
+# Separate from buf.gen.core.yaml because the tools module owns its numbers
+# and its generated tree: core must never gain a file it does not parse.
+version: v2
+clean: true
+inputs:
+  - directory: tools/api
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/tools/gen/go
+plugins:
+  # Pinned to the same version core uses; a split pin means two descriptor
+  # runtimes in one binary.
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: tools/gen/go
+    opt: [paths=source_relative]

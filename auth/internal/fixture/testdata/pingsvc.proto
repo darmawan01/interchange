@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+// The contract the runtime tests run against. It is compiled at test time
+// rather than checked in as generated Go, so a test descriptor is a real
+// descriptor: the (auth) option is read off it exactly as it is read off
+// generated code in production.
+package interchange.authtest.v1;
+
+import "interchange/auth/v1/auth.proto";
+
+// Every real contract carries one -- buf's managed mode sets it -- and
+// protoc-gen-authz refuses a file without one, so the fixtures carry one too.
+option go_package = "github.com/darmawan01/interchange/auth/internal/fixture/gen/authtest/v1;authtestv1";
+
+message PingRequest {
+  // Found by convention -- no annotation needed.
+  string tenant_id = 1;
+  string project_id = 2;
+  string note = 3;
+}
+
+message PingResponse {
+  string note = 1;
+}
+
+// The tenant lives under a house name, so the annotation has to carry it.
+message AliasRequest {
+  string org_id = 1 [(interchange.auth.v1.tenant_id_field) = true];
+  string workspace_id = 2 [(interchange.auth.v1.project_id_field) = true];
+  string note = 3;
+}
+
+service PingService {
+  // The ordinary case: a session credential and one permission atom.
+  rpc Ping(PingRequest) returns (PingResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION]
+      permission: {resource: "ping" verb: VERB_READ}
+    };
+  }
+
+  // absent != public: this one says it, so it is greppable.
+  rpc PingPublic(PingRequest) returns (PingResponse) {
+    option (interchange.auth.v1.auth) = {public: true};
+  }
+
+  // Cross-tenant: the request carries no tenant, so no tenant resolver is
+  // consulted.
+  rpc PingPlatform(PingRequest) returns (PingResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_WORKLOAD]
+      permission: {resource: "ping" verb: VERB_EDIT}
+      platform: true
+    };
+  }
+
+  // Same check, tenant fields under other names.
+  rpc PingAlias(AliasRequest) returns (PingResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION]
+      permission: {resource: "ping" verb: VERB_READ}
+    };
+  }
+
+  // Deliberately unannotated. Under the module's default policy this is a
+  // denial at runtime and a build failure under protoc-gen-authz.
+  rpc PingUnannotated(PingRequest) returns (PingResponse) {}
+}

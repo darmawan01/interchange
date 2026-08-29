@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+// A fully annotated contract: the input protoc-gen-authz is expected to turn
+// into a permission table without complaint.
+package interchange.authtest.perm.v1;
+
+import "interchange/auth/v1/auth.proto";
+
+// Every real contract carries one -- buf's managed mode sets it -- and
+// protoc-gen-authz refuses a file without one, so the fixtures carry one too.
+option go_package = "github.com/darmawan01/interchange/auth/internal/fixture/gen/authtest/perm/v1;permv1";
+
+message CatalogRequest {
+  string tenant_id = 1;
+}
+
+message CatalogResponse {
+  string note = 1;
+}
+
+service CatalogService {
+  rpc ListProviders(CatalogRequest) returns (CatalogResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [
+        AUTH_TYPE_SESSION,
+        AUTH_TYPE_API_KEY
+      ]
+      permission: {resource: "providers" verb: VERB_READ}
+    };
+  }
+
+  rpc CreateProvider(CatalogRequest) returns (CatalogResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_SESSION]
+      permission: {resource: "providers" verb: VERB_CREATE}
+    };
+  }
+
+  rpc Health(CatalogRequest) returns (CatalogResponse) {
+    option (interchange.auth.v1.auth) = {public: true};
+  }
+
+  rpc Reindex(CatalogRequest) returns (CatalogResponse) {
+    option (interchange.auth.v1.auth) = {
+      auth_types: [AUTH_TYPE_WORKLOAD]
+      permission: {resource: "providers" verb: VERB_EDIT}
+      platform: true
+    };
+  }
+}

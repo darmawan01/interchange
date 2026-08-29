@@ -1,0 +1,15 @@
+version: v2
+clean: true
+managed:
+  enabled: true
+  disable:
+    - file_option: go_package
+      module: buf.build/googleapis/googleapis
+  override:
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/auth/gen/go
+plugins:
+  # Pin every version. If a pin is held back, write down why next to it.
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: auth/gen/go
+    opt: [paths=source_relative]

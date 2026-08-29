@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package interchange.fixture.v1;
+
+import "interchange/cli/v1/cli.proto";
+
+// ExtraService exists to prove the obvious failure mode: two .proto files in
+// one directory generate into one Go package, so nothing either plugin emits
+// may be named per-file. It also mounts under the same CLI path prefix as
+// FixtureService.
+service ExtraService {
+  rpc Noop(NoopRequest) returns (NoopResponse) {
+    option (interchange.cli.v1.command) = {
+      path: ["fixture", "noop"]
+      short: "Do nothing, twice"
+    };
+  }
+}
+
+message NoopRequest {}
+
+message NoopResponse {}

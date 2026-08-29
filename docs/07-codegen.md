@@ -20,6 +20,11 @@ privileged, which is the test of whether the extension point is real.
 Everything downstream of the IR is format-blind. A generator never learns whether the contract
 started life as proto or OpenAPI.
 
+> **`protoc-gen-bus` emits no subscribers.** It was going to, and that was wrong: the message
+> engine subscribes from the registry, so the generated `ServiceDesc` *is* the subscriber. A
+> generated subscription alongside it would be a second source of truth for the same fan-out — and
+> the annotation would then have two readers that could disagree.
+
 ## The generators that ship
 
 | Generator | Emits | Source |
@@ -27,7 +32,7 @@ started life as proto or OpenAPI.
 | `protocolbuffers/go` + `connectrpc/go` | messages, server interfaces, HTTP clients | upstream |
 | `bufbuild/es` + `connectrpc/es` | TypeScript types and browser clients | upstream |
 | `protocolbuffers/python` | message classes; transport is ~80 lines by hand | upstream |
-| **`protoc-gen-bus`** | NATS/MQTT subscribers + typed clients, from `(transports)` | ours |
+| **`protoc-gen-bus`** | the service descriptor, the server interface, and typed bus clients, from `(transports)` | ours |
 | **`protoc-gen-authz`** | the permission table; fails the build on a bad annotation | ours — **optional**, ships with the `/auth` module |
 | **`protoc-gen-cli`** | a Cobra command tree from `(cli.command)` | ours |
 

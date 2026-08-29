@@ -128,7 +128,7 @@ func TestChainSymmetry(t *testing.T) {
 
 	in := &commonv1.Problem{Title: "hello"}
 	var viaHTTP commonv1.Problem
-	if err := s.client.Invoke(ctx, s.method(t, testsvc.EchoProcedure), in, &viaHTTP,
+	if err := s.client.InvokeMethod(ctx, s.method(t, testsvc.EchoProcedure), in, &viaHTTP,
 		interchange.Metadata{"x-trace": "http"}); err != nil {
 		t.Fatalf("http call: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestErrorIsTheSameOnBothRoads(t *testing.T) {
 	ctx := context.Background()
 
 	var out commonv1.Problem
-	httpErr := s.client.Invoke(ctx, s.method(t, testsvc.FailProcedure), &commonv1.Problem{}, &out, nil)
+	httpErr := s.client.InvokeMethod(ctx, s.method(t, testsvc.FailProcedure), &commonv1.Problem{}, &out, nil)
 	busErr := s.busCli.Invoke(ctx, testsvc.FailProcedure, &commonv1.Problem{}, &out)
 
 	for road, err := range map[string]error{"http": httpErr, "bus": busErr} {
@@ -193,7 +193,7 @@ func TestTransportAnnotationIsLoadBearing(t *testing.T) {
 		t.Fatalf("bus-only method must serve on the bus: %v", err)
 	}
 
-	err := s.client.Invoke(ctx, s.method(t, testsvc.BusOnlyProcedure), &commonv1.Problem{}, &out, nil)
+	err := s.client.InvokeMethod(ctx, s.method(t, testsvc.BusOnlyProcedure), &commonv1.Problem{}, &out, nil)
 	if err == nil {
 		t.Fatal("a method not declared on TRANSPORT_RPC must not be mounted on the RPC binding")
 	}
