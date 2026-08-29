@@ -38,6 +38,12 @@ jobs:
       - name: build plugins and ix
         run: make plugins ix
 
+      # The front-end criterion is only enforced when the workspace is
+      # installed: TestAFrontEndImportsItsTypesFromGeneratedOutput skips
+      # otherwise, and a criterion that skips in CI is enforced on nobody.
+      - name: install the example's front-end workspace
+        run: npm --prefix examples/catalog ci
+
       - name: vet
         run: make vet
 

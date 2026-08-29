@@ -7,9 +7,9 @@ envelope makes all four explicit so every transport has the same capabilities.
 This is the core of the design — five of the seven gaps from [§00](00-problem.md) land here.
 
 ```protobuf
-// api/platform/transport/v1/envelope.proto
+// api/interchange/transport/v1/envelope.proto
 syntax = "proto3";
-package platform.transport.v1;
+package interchange.transport.v1;
 
 // One request, on any transport.
 message Request {

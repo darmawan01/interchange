@@ -10,17 +10,19 @@ maintained.
 api/
   buf.yaml                       # module name, deps, lint, breaking rules
   buf.lock                       # pinned dependency digests
-  platform/
-    catalog/v1/catalog.proto     # a real service
-    orders/v1/orders.proto
-    # --- core ---
-    transport/v1/envelope.proto  # the transport-neutral envelope (§03)
-    # --- optional modules, present only if you install them ---
-    auth/v1/auth.proto           # the (auth) annotation
-    auth/v1/permissions.proto    # closed Permission enum
-    errors/v1/reasons.proto      # closed ErrorReason enum
-    cli/v1/cli.proto             # CLI command overrides
-    common/v1/types.proto        # PageRequest, Problem, shared scalars
+  catalog/v1/catalog.proto       # yours: a real service
+  orders/v1/orders.proto
+
+# --- shipped by the framework, imported by yours ---
+# core
+interchange/transport/v1/envelope.proto    # the transport-neutral envelope (§03)
+interchange/transport/v1/transports.proto  # the (transports) annotation
+interchange/common/v1/types.proto          # PageRequest, Problem, shared scalars
+# optional modules, present only if you install them
+interchange/auth/v1/auth.proto             # the (auth) annotation
+interchange/auth/v1/permissions.proto      # closed Permission enum
+interchange/errors/v1/reasons.proto        # closed ErrorReason enum
+interchange/cli/v1/cli.proto               # CLI command overrides
 ```
 
 ```yaml
@@ -75,9 +77,9 @@ A custom option is an ordinary message attached to a descriptor by extending `Me
 **That dual availability is the whole mechanism.**
 
 ```protobuf
-// api/platform/auth/v1/auth.proto
+// api/interchange/auth/v1/auth.proto
 syntax = "proto3";
-package platform.auth.v1;
+package interchange.auth.v1;
 import "google/protobuf/descriptor.proto";
 
 enum AuthType {
@@ -152,19 +154,19 @@ service CatalogService {
 
     // 3. which roads this RPC travels. Default is RPC + REST;
     //    naming BUS here is what emits the NATS subscriber.
-    option (platform.transport.v1.transports) = {
+    option (interchange.transport.v1.transports) = {
       on: [TRANSPORT_RPC, TRANSPORT_REST, TRANSPORT_BUS]
     };
 
     // 4. authorization -- OPTIONAL module; if installed, the chain
     //    applies it identically on all three roads
-    option (platform.auth.v1.auth) = {
+    option (interchange.auth.v1.auth) = {
       auth_types: [AUTH_TYPE_SESSION, AUTH_TYPE_API_KEY, AUTH_TYPE_WORKLOAD]
       permission: {resource: "providers" verb: VERB_READ}
     };
 
     // 5. CLI: mounts as `platform catalog providers`
-    option (platform.cli.v1.command) = {path: ["catalog", "providers"]};
+    option (interchange.cli.v1.command) = {path: ["catalog", "providers"]};
   }
 }
 ```

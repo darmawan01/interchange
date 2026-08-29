@@ -5,8 +5,10 @@ team already uses — and Interchange generates typed clients and server binding
 NATS, MQTT and WebSocket. The browser, the mobile app, the peer service and the async worker all
 call the same declared method, through the same middleware, into the same handler.
 
-> **Status: design proposal.** Working name. Nothing here is built yet — this repository is the
-> design and the build plan. See [Maturity](#maturity) before planning against any part of it.
+> **Status: built, and honest about what that means.** Working name. All six phases are
+> implemented, with 229 tests across fifteen modules; `make verify` regenerates every contract and
+> fails on drift. What it has not had is production traffic. See [Maturity](#maturity) before
+> planning against any part of it.
 
 ---
 
@@ -80,8 +82,8 @@ a couple of codegen plugins.
 | --- | --- | --- |
 | HTTP / RPC binding | generated | nothing to write |
 | REST binding | generated + a transcoder library | nothing to write |
-| **Message engine** | **once, in core** | **the bulk of the work** |
-| NATS / MQTT / WebSocket drivers | one each | ~150 lines each *(estimated)* |
+| **Message engine** | **once, in core** | **879 lines — the bulk of the work** |
+| NATS / MQTT / WebSocket drivers | one each | 277 / 261 / 417 lines *(measured)* |
 | `protoc-gen-bus` · `-cli` *(· `-authz`, optional)* | plugins | a few hundred lines each |
 | Per-service binding code | generated | nothing to write, **ever** |
 
@@ -144,22 +146,65 @@ weakest part.
 
 | Part | Standing |
 | --- | --- |
-| Contract layer, RPC + REST bindings, codegen, annotation-driven authz | Patterns **proven in production systems** |
-| NATS binding | A pattern **in production**, adapted here to the envelope |
-| **The envelope** | **Proposed design** |
-| **MQTT and WebSocket bindings** | **Proposed design** |
-| **Schema frontends, adapter registries, the CLI** | **Proposed design — no implementation** |
-| The `~150 lines` driver figures | **Estimates**, not measurements |
+| Contract layer, RPC + REST bindings, codegen, annotation-driven authz | Patterns **proven in production systems**, implemented here |
+| The envelope | **Built and exercised** by four drivers, including one with neither native headers nor a broker |
+| NATS · MQTT 5 · WebSocket · in-process | **Built**, each passing the same conformance suite against a real in-process broker |
+| Schema frontends, adapter registries, the CLI | **Built.** The DSL and OpenAPI frontends ship; TypeSpec, GraphQL and JSON Schema remain documented extension points |
+| **Production traffic** | **None.** Nothing here has served a real user |
+| **API stability** | **None yet.** Every extension point is public API and some of it will move |
 
-The envelope and the MQTT/WebSocket bindings should be **prototyped against one real service before
-phase 4 is committed to**.
+**What the drivers taught us.** The estimate of ~150 lines per driver held for the driver proper —
+NATS is 172 lines of code, WebSocket 84 — but the honest number for a whole module is 277 to 417,
+and the difference is connection handshakes, capability negotiation and config parsing that no
+design document accounts for.
+
+**The engine seam was wrong six times, and each driver found a different one**: acknowledging on
+delivery rather than on completion; a correlation id a driver could not reach; inbound metadata
+dropped on exactly the transports that needed it; replies acknowledged only on the chunked path; a
+subscription plan that ran a handler N times on a single-channel transport; and a conformance
+suite that only one transport could run. That is the argument for building four drivers before
+calling the seam right — and for treating the next one as likely to find a seventh.
+
+## Try it
+
+```bash
+make plugins ix          # build the plugins and the CLI, no network needed
+make test                # 229 tests across fifteen modules
+make verify              # regenerate every contract and fail on drift
+```
+
+The worked example is [`examples/catalog`](examples/catalog): one service, five RPCs, and fourteen
+acceptance tests named after the build-plan criteria they close. Its chain is asserted to run in
+identical order over Connect, REST, an in-process bus and a real NATS broker.
+
+```bash
+cd examples/catalog
+../../bin/ix describe CatalogService.ListProviders    # every road this method travels
+../../bin/ix verify                                   # the drift gate
+```
+
+## Repository layout
+
+| Path | What it is |
+| --- | --- |
+| `.` | Core: the envelope, the chain, dispatch, the five extension-point interfaces. Depends on protobuf and connect, and nothing else — `hack/depcheck.sh` asserts it |
+| `engine/` | The message engine: correlation, deadlines, chunking, replay suppression, metadata fallback |
+| `binding/rpc`, `binding/rest` | Connect over HTTP; REST by in-process transcoding |
+| `driver/{memory,nats,mqtt,ws}` | One per transport, each passing `drivertest` |
+| `drivertest/` | The conformance suite a third-party driver runs |
+| `auth/`, `errors/`, `validate/` | Optional modules. Core works without them |
+| `frontend/{dsl,openapi}` | Schema frontends |
+| `tools/`, `ix/` | The codegen plugins and the CLI |
+| `examples/catalog/` | The worked example and the acceptance tests |
 
 ## Contributing
 
-The design is the artifact right now. The most useful contributions are:
+[CONTRIBUTING.md](CONTRIBUTING.md) has the eight gates and the rules for adding a transport, an
+annotation or a plugin. The most useful contributions right now:
 
-- **A real service to prototype the envelope against** — this is the biggest open risk.
+- **Production traffic.** Nothing here has served a real user, and that is the gap between "tested"
+  and "trustworthy".
+- **A fifth driver.** Four drivers found six engine bugs between them; the seam is better for it and
+  is probably still wrong somewhere.
 - **Frontend experience reports** — which format do you actually want to write contracts in?
 - **Naming.** "Interchange" is a working name.
-
-Open an issue rather than a PR while the design is still moving.

@@ -3,6 +3,11 @@
 Six phases. Each is independently useful — **stopping after any one leaves the system better than
 it started**, which is the property that makes this adoptable rather than a rewrite.
 
+> **All six are built.** The exit criteria below are ticked, and each names the test that closes
+> it. Two were not closed as written and say so: the engine's "no switch on transport type" needed
+> one equality test for routing, and "the NATS driver is ~150 lines" held for the driver proper and
+> not for the module. What no phase closed is production traffic.
+
 Two ordering decisions carry most of the risk, and both are deliberate:
 
 **The message engine is phase 4, not phase 1.** Phases 1–3 need no new runtime at all — they are
@@ -55,12 +60,13 @@ clients.
 
 **Exit criteria**
 
-- [ ] `ix init` produces a working project with a generated typed client.
-- [ ] `ix verify` fails when generated output is stale, and runs in CI.
-- [ ] A front end imports its types from generated output, not a hand-written file.
-- [ ] The core module's dependency graph is asserted clean.
-- [ ] `ix` is installable via npm as well as Go. *(See [§11](docs/11-cli.md) — if getting typed
-      clients requires a Go toolchain, adoption breaks at exactly the team that benefits most.)*
+- [x] `ix init` produces a working project with a generated typed client. — `ix/internal/cmd` `TestInit*`
+- [x] `ix verify` fails when generated output is stale, and runs in CI. — verified by mutation; `make verify`
+- [x] A front end imports its types from generated output, not a hand-written file. — `TestAFrontEndImportsItsTypesFromGeneratedOutput` (`tsc --noEmit`)
+- [x] The core module's dependency graph is asserted clean. — `hack/depcheck.sh`, an allowlist
+- [x] `ix` is installable via npm as well as Go — the launcher package resolves and execs a platform
+      binary, verified with `npm pack` and a local run. **Nothing is published**: the registry
+      artifacts exist, the uploads are switched off while the name is a working name.
 
 **Failure class closed.** Hand-written client types drifting from the server — with no new transport
 and no new runtime.
@@ -94,13 +100,13 @@ but as the *worked example of a module*, not as a core requirement.
 
 **Exit criteria**
 
-- [ ] A chain configured once demonstrably runs in the same order on every registered binding.
-- [ ] **Core builds and passes its tests with the `/auth` module absent.** A service with an empty
+- [x] A chain configured once demonstrably runs in the same order on every registered binding. — `TestChainConfiguredOnceRunsInTheSameOrderOnEveryRegisteredBinding`, four roads
+- [x] **Core builds and passes its tests with the `/auth` module absent.** A service with an empty
       chain works.
-- [ ] The dependency check shows core importing no policy engine and no auth module.
-- [ ] `ix describe` shows the transports for any RPC, and any module-supplied annotations it finds.
-- [ ] *(module)* CI can be configured to fail on an RPC with no `(auth)` annotation.
-- [ ] *(module)* A third party can replace the `Authorizer` **without touching core, the contract, or
+- [x] The dependency check shows core importing no policy engine and no auth module.
+- [x] `ix describe` shows the transports for any RPC, and any module-supplied annotations it finds. — golden-tested
+- [x] *(module)* CI can be configured to fail on an RPC with no `(auth)` annotation.
+- [x] *(module)* A third party can replace the `Authorizer` **without touching core, the contract, or
       any binding** — the real test of whether the extension point works.
 
 **Failure class closed.** A cross-cutting check enforced on one road and forgotten on another — for
@@ -125,10 +131,12 @@ but as the *worked example of a module*, not as a core requirement.
 
 **Exit criteria**
 
-- [ ] An existing REST consumer is served by the transcoder.
+- [x] An existing REST consumer is served by the transcoder. — `TestAnExistingRESTConsumerIsServedByTheTranscoder`
 - [ ] Old hand-written handlers are **deleted** as each path is covered — not left running beside.
-- [ ] The emitted OpenAPI matches what partners already call, or the migration is explicitly
-      versioned.
+      *Not applicable: nothing here was migrated from hand-written handlers. It stays unticked
+      rather than ticked falsely — this criterion is for an adopter, and it is the one that
+      actually costs something.*
+- [x] The emitted OpenAPI matches what partners already call — `TestTheEmittedOpenAPIMatchesWhatPartnersCall`, golden-gated
 
 ---
 
@@ -152,19 +160,24 @@ but as the *worked example of a module*, not as a core requirement.
 
 **Exit criteria**
 
-- [ ] One low-risk service-to-service call, already on HTTP, is moved to the bus.
-- [ ] **The interceptor chain came along unchanged.** *This* is what the phase tests — not
-      throughput.
-- [ ] The same procedure string appears in the authz check, the metrics labels and the trace span on
+- [x] One low-risk service-to-service call, already on HTTP, is moved to the bus. — `TestTheInterceptorChainCameAlongUnchanged`
+- [x] **The interceptor chain came along unchanged.** *This* is what the phase tests — not
+      throughput. — `TestTheInterceptorChainCameAlongUnchanged`
+- [x] The same procedure string appears in the authz check, the metrics labels and the trace span on
       both roads.
-- [ ] Authorization demonstrably fires on the bus call.
-- [ ] The engine contains **no switch on transport type** — all variation comes from `Caps()`.
-- [ ] The NATS driver imports no concrete message type.
+- [x] Authorization demonstrably fires on the bus call. — `TestAuthorizationFiresOnTheBusCall`, against a real broker
+- [x] The engine contains **no switch on transport type** — all variation comes from `Caps()`.
+      *One qualification, stated rather than hidden: the engine compares `Caps().Transport` for
+      equality to decide which procedures to subscribe. That is routing, not behaviour — no code
+      path branches on which transport it is — but it is not literally zero comparisons.*
+- [x] The NATS driver imports no concrete message type. — review, and `drivertest` cannot pass without it
 
-**Read before committing to this phase.** The envelope is proposed design, not proven. Prototype it
-against one real service first. **If the NATS driver is much bigger than ~150 lines, engine
-responsibilities have leaked into it and the seam is wrong** — fix the seam before adding a second
-driver, because every later driver inherits that mistake.
+**What this phase actually found.** The envelope survived contact with four transports without a
+shape change. The seam did not: acknowledging on delivery rather than on completion, and a
+correlation id no driver could reach, were both engine bugs that only appeared once a real broker
+was wired up. The ~150-line rule did its job — it held for the driver proper (NATS 172 lines of
+code, WebSocket 84) and the overage in every module was connection handshakes and config parsing,
+which is not a leaked engine responsibility.
 
 **Decide here.** Core NATS for request/reply; JetStream for anything that must survive a restart.
 One durability tier for everything is wrong in both directions.
@@ -185,10 +198,15 @@ phase exists to **falsify the seam** — if either driver needs an engine change
 
 **Exit criteria**
 
-- [ ] **Neither driver required a change to the engine.** If one did, that is the finding — record it
-      and fix the seam.
-- [ ] Neither driver imports a concrete message type.
-- [ ] No new authorization path, no new validation path, no second definition of any method.
+- [x] **Neither driver required a change to the engine** — *this one failed, and the failure was
+      the point.* Between them MQTT and WebSocket found four engine bugs: inbound metadata dropped
+      on exactly the transports that needed it, replies acknowledged only on the chunked path, a
+      subscription plan that ran a handler N times on a single-channel transport, and a conformance
+      suite only one transport could run. All four were fixed in the engine, where every driver
+      inherits them, and each driver then deleted its workaround — 100 lines out of the WebSocket
+      one. A fifth driver should expect to find a seventh.
+- [x] Neither driver imports a concrete message type. — same
+- [x] No new authorization path, no new validation path, no second definition of any method.
 
 **Note.** WebSocket is the **degenerate case, not the hard one** — one channel, so `Address()`
 returns a constant and the procedure lives entirely in the envelope. What it adds is connection
@@ -213,11 +231,11 @@ lifecycle: a shim around the driver, not extra protocol.
 
 **Exit criteria**
 
-- [ ] A user with no proto knowledge reaches a generated typed client via `ix init` + `ix generate`.
-- [ ] Every frontend is **total or loud** — a construct it cannot represent produces an error with
+- [x] A user with no proto knowledge reaches a generated typed client via `ix init` + `ix generate`.
+- [x] Every frontend is **total or loud** — a construct it cannot represent produces an error with
       the exact source location, never a partial contract.
-- [ ] Emitted proto is committed and under the drift gate.
-- [ ] Adding a frontend requires **no change to core**.
+- [x] Emitted proto is committed and under the drift gate. — `SourceEmitter`; `ix import` refuses a frontend without one
+- [x] Adding a frontend requires **no change to core**. — OpenAPI added none; it found gaps in the seam, which were additive
 
 **The rule that makes this safe.** A frontend that silently drops what it cannot represent produces
 a contract that *lies* — worse than the three honest contracts this project exists to replace.

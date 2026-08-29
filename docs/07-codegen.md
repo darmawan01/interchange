@@ -81,7 +81,12 @@ func run(p *protogen.Plugin) error {
         }
         for _, svc := range file.Services {
             for _, m := range svc.Methods {
-                opts := m.Desc.Options().(*descriptorpb.MethodOptions)
+                // NOT m.Desc.Options() -- a descriptor built by anything
+                // other than linked generated Go carries custom options as
+                // dynamicpb values, and GetExtension against those panics or
+                // silently returns the zero value. An annotation that reads
+                // as absent is a check that stops firing.
+                opts := interchange.MethodOptions(m.Desc)
                 a, _ := proto.GetExtension(opts, authv1.E_Auth).(*authv1.AuthOptions)
                 if a == nil && cfg.OnMissing == Error {
                     // This module's default policy -- not a core rule.
@@ -112,6 +117,7 @@ func run(p *protogen.Plugin) error {
 | **sort before emitting** | Go map iteration is random. A shuffled generated file fails the drift check every other run and nobody trusts the gate after that. |
 | **fail, don't warn** | When your plugin's policy says an input is invalid, return an error. A warning in a build log is a warning nobody reads. |
 | **deterministic headers** | No timestamps, no version strings that change per build — same input, same bytes. |
+| **read options through core** | `interchange.MethodOptions`, never `Descriptor.Options()`. Both plugins ship a mutation test that fails with *"an annotation was read as absent"* when someone reverts this. |
 
 ## The gate that makes it real
 

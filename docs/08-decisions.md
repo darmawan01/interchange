@@ -26,22 +26,34 @@
 | Interceptor ordering | positional / named anchors | **Named** — positional chains break silently when a stage is inserted upstream |
 | CLI name | `interchange` / `ix` | `ix`, with `interchange` as an alias |
 
+## Resolved by building it
+
+**Per-RPC transport opt-in, or per-service? — Both, and the per-RPC one replaces rather than
+merges.** A service-level `(service_transports)` sets the default; a per-RPC `(transports)`
+replaces it entirely, including the queue group. Merging would mean a reviewer has to compose two
+annotations in their head to answer "what does this expose", and the whole point of the annotation
+is that the answer is visible in the diff.
+
+**Do generated bus clients block? — Both signatures are generated.** `ListProviders(ctx, req)` and
+`ListProvidersWithin(ctx, timeout, req)`. The plain one is the mental model people want; the
+explicit-deadline one exists because a synchronous call that hides a network timeout behind a
+local-looking signature is exactly the trap this section worried about.
+
+**Bus durability — two drivers, not one with a flag.** Core NATS and JetStream are separate
+constructors with different `Capabilities`. The durable tier cannot preserve the publisher's reply
+subject, so it declares `NativeReply: false` and the return address rides in the envelope. Nothing
+above the driver noticed, which is the strongest evidence the capability model works.
+
+**How far does the CLI generator go? — It reports its own coverage.** `protoc-gen-cli` emits a
+`Coverage()` report and takes `require_annotation=true` to fail the build on an unannotated RPC.
+The worry was that 80% coverage is worse than none; the answer is to make the percentage visible
+rather than to guess it.
+
 ## Open questions
 
-**Per-RPC transport opt-in, or per-service?** The `transports` annotation is drawn per-RPC, which is
-the most precise but also the most annotation to maintain. A service-level default with per-RPC
-overrides is probably the right ergonomics; it needs a real service to decide.
-
-**Where does the bus binding get identity?** Over HTTP the credential is a header. On a bus there is
-a second option — the broker's own authenticated connection identity — which is stronger but couples
-authorization to broker configuration. Worth prototyping both.
-
-**Do generated bus clients block?** A synchronous `ListProviders` over request/reply is the easy
-mental model but hides a network timeout behind a function call that looks local. Consider making
-the bus client's signature take an explicit deadline.
-
-**How far does the CLI generator go?** It is nearly free once the annotations exist, but a generated
-CLI that covers only 80% of RPCs may be worse than none.
+**Where does the bus binding get identity?** Still open. The broker's own authenticated connection
+identity is stronger than a credential in metadata but couples authorization to broker
+configuration. Only the metadata path is built.
 
 **Which non-proto frontend first?** TypeSpec is the cleanest fit; OpenAPI has the most existing
 contracts to import; the Interchange DSL is the best onboarding story. They serve different

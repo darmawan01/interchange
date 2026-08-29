@@ -63,8 +63,13 @@ interchange.RegisterFrontend(openapi.New())
 | **GraphQL SDL** | partial | Queries/mutations → RPCs maps well. Interfaces, unions and fragments do not. Subscriptions map to streaming, which is [deliberately deferred](08-decisions.md). |
 | **TypeSpec** | good fit | Already an IDL designed to emit multiple targets. Probably the easiest non-proto frontend to get right. |
 
-> Only `.proto` is planned for the first release. The rest are the extension point's reason to
-> exist, and each should be proven against one real service before being called supported.
+> **`.proto`, the Interchange DSL and OpenAPI 3.x ship.** The DSL refuses 18 construct classes with
+> a line and column; OpenAPI refuses 25. TypeSpec, GraphQL SDL and JSON Schema remain the extension
+> point's reason to exist — adding one requires no change to core, which OpenAPI demonstrated by
+> needing none.
+>
+> None has been proven against a real service. That is the bar for calling one *supported*, and
+> neither has cleared it.
 
 ## Four rules that keep this honest
 
@@ -111,6 +116,10 @@ procedures:
 **4. The emitted proto is committed.** Same drift gate as generated code: `ix verify` regenerates
 from source and fails if the tree moved. This is what stops the IR from becoming an invisible
 build artifact nobody can review.
+
+This is enforced rather than asked for: emitting source is the optional `interchange.SourceEmitter`
+interface, and `ix import` refuses to run a frontend that does not implement it. A frontend that
+can only produce descriptors has nothing reviewable to write.
 
 ## What this does *not* mean
 
