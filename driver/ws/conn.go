@@ -233,8 +233,8 @@ func (c *Conn) dispatch(addr string, body []byte) {
 		// under the envelope's own metadata, so a per-call value still wins.
 		Header: c.Metadata().AsMap(),
 		Body:   body,
-		Reply: func(rbody []byte, _ map[string]string) error {
-			return c.send(c.ctx, AddressReply, rbody)
+		Reply: func(ctx context.Context, rbody []byte, _ map[string]string) error {
+			return c.send(ctx, AddressReply, rbody)
 		},
 	}
 

@@ -130,7 +130,9 @@ func (d *Driver) Subscribe(ctx context.Context, pattern, group string, fn func(i
 func (d *Driver) inbound(m *nats.Msg) interchange.Inbound {
 	in := interchange.Inbound{Address: m.Subject, Header: fromHeader(m.Header), Body: m.Data}
 	if m.Reply != "" && d.stream == nil {
-		in.Reply = func(body []byte, hdr map[string]string) error {
+		in.Reply = func(_ context.Context, body []byte, hdr map[string]string) error {
+			// NATS publishes into a buffer; there is nothing here to bound,
+			// so the engine's context is accepted and unused.
 			return m.RespondMsg(&nats.Msg{Data: body, Header: toHeader(hdr)})
 		}
 	}

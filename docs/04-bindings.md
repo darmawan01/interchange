@@ -70,7 +70,9 @@ type Inbound struct {
     Address string
     Header  map[string]string                    // empty when !Caps.NativeHeaders
     Body    []byte
-    Reply   func([]byte, map[string]string) error // nil when !Caps.NativeReply
+    // nil when !Caps.NativeReply. The context is the engine's and
+    // bounds the wait, so a driver never invents its own deadline.
+    Reply   func(context.Context, []byte, map[string]string) error
 
     // Called once, after the call has been handled and its reply sent.
     // nil when the transport has no acknowledgement. Done(nil) means

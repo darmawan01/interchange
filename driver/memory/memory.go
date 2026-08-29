@@ -171,8 +171,8 @@ func (b *Bus) deliver(s *subscription, from *Driver, addr string, body []byte, h
 	}
 	if b.caps.NativeReply && from != nil {
 		reply := from.inbox
-		in.Reply = func(rbody []byte, rhdr map[string]string) error {
-			return b.publish(context.Background(), nil, reply, rbody, rhdr)
+		in.Reply = func(ctx context.Context, rbody []byte, rhdr map[string]string) error {
+			return b.publish(ctx, nil, reply, rbody, rhdr)
 		}
 	}
 	b.wg.Add(1)

@@ -27,7 +27,11 @@ type Inbound struct {
 
 	// Reply is nil when Caps().NativeReply is false. The engine then falls
 	// back to publishing to the address in the envelope's metadata.
-	Reply func(body []byte, hdr map[string]string) error
+	//
+	// The context is the engine's, and bounds the wait: a driver whose
+	// transport can block behind a silent broker should not have to invent
+	// its own deadline, and must not be able to hang shutdown.
+	Reply func(ctx context.Context, body []byte, hdr map[string]string) error
 
 	// Done, when non-nil, reports the outcome of this message back to the
 	// transport, exactly once, after the call has been handled and its reply

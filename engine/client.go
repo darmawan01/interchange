@@ -250,6 +250,14 @@ func (c *Client) forget(id string) {
 }
 
 func (c *Client) onReply(in interchange.Inbound) {
+	// Every path out of here acknowledges. A reply that arrives whole is the
+	// common case, and leaving it unacknowledged strands a QoS 1 packet
+	// inflight -- which then stalls the acknowledgement of everything behind
+	// it, because a broker flushes acks in receipt order.
+	acks := []func(error){in.Done}
+	var err error
+	defer func() { ackAll(acks, err) }()
+
 	kind, body, err := unframe(in.Body)
 	if err != nil {
 		c.cfg.logger.Warn("engine: dropping malformed reply", slog.String("err", err.Error()))
@@ -257,30 +265,35 @@ func (c *Client) onReply(in interchange.Inbound) {
 	}
 	if kind == kindFrame {
 		var f transportv1.Frame
-		if err := proto.Unmarshal(body, &f); err != nil {
+		if err = proto.Unmarshal(body, &f); err != nil {
 			return
 		}
-		whole, acks, err := c.reasm.accept(&f, in.Done)
+		var whole []byte
+		var held []func(error)
+		whole, held, err = c.reasm.accept(&f, in.Done)
 		if err != nil {
-			ackAll(acks, err)
+			acks = held
 			return
 		}
 		if whole == nil {
+			// Held: this frame is acknowledged with the rest of the message.
+			acks = nil
 			return
 		}
-		ackAll(acks, nil)
+		acks = held
 		if kind, body, err = unframe(whole); err != nil {
 			return
 		}
 	}
 	if kind != kindResponse {
+		err = errors.New("engine: not a response")
 		return
 	}
 	var resp transportv1.Response
-	if err := proto.Unmarshal(body, &resp); err != nil {
+	if err = proto.Unmarshal(body, &resp); err != nil {
 		return
 	}
-	if c.caps.NativeHeaders && len(in.Header) > 0 {
+	if len(in.Header) > 0 {
 		if resp.Metadata == nil {
 			resp.Metadata = map[string]string{}
 		}
@@ -296,7 +309,9 @@ func (c *Client) onReply(in interchange.Inbound) {
 	}
 	c.mu.Unlock()
 	if !ok {
-		// A reply to a call that already timed out, or a redelivery.
+		// A reply to a call that already timed out, or a redelivery. There is
+		// nobody to hand it to, but it did arrive -- acknowledging it is what
+		// stops the broker sending it again forever.
 		return
 	}
 	ch <- &resp

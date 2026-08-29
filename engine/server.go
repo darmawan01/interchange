@@ -423,17 +423,17 @@ func (s *Server) reply(in interchange.Inbound, replyTo string, resp *transportv1
 		}
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.replyTimout)
+	defer cancel()
+
 	for _, part := range parts {
 		switch {
 		case in.Reply != nil:
-			if err := in.Reply(part, hdr); err != nil {
+			if err := in.Reply(ctx, part, hdr); err != nil {
 				return err
 			}
 		case replyTo != "":
-			ctx, cancel := context.WithTimeout(context.Background(), s.cfg.replyTimout)
-			err := s.drv.Publish(ctx, replyTo, part, hdr)
-			cancel()
-			if err != nil {
+			if err := s.drv.Publish(ctx, replyTo, part, hdr); err != nil {
 				return err
 			}
 		default:
