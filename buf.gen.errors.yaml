@@ -1,0 +1,16 @@
+version: v2
+clean: true
+managed:
+  enabled: true
+  disable:
+    - file_option: go_package
+      module: buf.build/googleapis/googleapis
+  override:
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/errors/gen/go
+plugins:
+  # Pinned to the same protobuf runtime the core module requires; a plugin
+  # newer than the runtime emits code the runtime cannot load.
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: errors/gen/go
+    opt: [paths=source_relative]

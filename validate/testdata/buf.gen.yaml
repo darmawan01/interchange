@@ -1,0 +1,16 @@
+version: v2
+clean: true
+managed:
+  enabled: true
+  disable:
+    # The protovalidate module publishes its own Go package; overriding it
+    # would make the generated fixture import a package that does not exist.
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+  override:
+    - file_option: go_package_prefix
+      value: github.com/darmawan01/interchange/validate/internal/testpb
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: ../internal/testpb
+    opt: [paths=source_relative]

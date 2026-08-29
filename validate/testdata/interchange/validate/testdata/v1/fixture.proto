@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package interchange.validate.testdata.v1;
+
+import "buf/validate/validate.proto";
+
+// The fixture contract. The rules below are written ONCE, here, and the test
+// asserts they are enforced identically on the Connect road and on the bus --
+// which is the claim the module exists to make.
+message CreateProviderRequest {
+  string name = 1 [(buf.validate.field).string = {
+    min_len: 3
+    max_len: 64
+  }];
+
+  string email = 2 [(buf.validate.field).string.email = true];
+
+  int32 rate_limit = 3 [(buf.validate.field).int32.gte = 0];
+}
+
+message CreateProviderResponse {
+  string id = 1;
+}

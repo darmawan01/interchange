@@ -94,6 +94,16 @@ func (e *Error) WithReason(reason string) *Error {
 	return &c
 }
 
+// WithMessage returns a copy of err with a different human-readable message,
+// keeping the code, the reason and the cause. Redacting a message an
+// adopter's error taxonomy should not put on the wire is what this is for --
+// "sql: no rows in result set" is not public API.
+func (e *Error) WithMessage(format string, args ...any) *Error {
+	c := *e
+	c.Message = fmt.Sprintf(format, args...)
+	return &c
+}
+
 // WithMeta returns a copy of err carrying response metadata.
 func (e *Error) WithMeta(md Metadata) *Error {
 	c := *e
