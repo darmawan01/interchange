@@ -1,0 +1,529 @@
+openapi: 3.0.3
+info:
+  title: Payments
+  version: "1.4.0"
+  description: |-
+    The payments API, as it exists today.
+
+    Imported by the interchange openapi frontend; the .proto beside this file
+    is the artifact.
+x-interchange-service: PaymentsService
+x-interchange-service-transports: [RPC, REST]
+
+paths:
+  /v1/payments:
+    get:
+      summary: List payments for the calling tenant.
+      x-interchange-auth:
+        auth_types: [SESSION, API_KEY]
+        permission: {resource: payments, verb: READ}
+      x-interchange-cli: {path: [payments, list]}
+      parameters:
+        - {name: pageSize, in: query, schema: {type: integer, format: int32}}
+        - {name: pageToken, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/PaymentStatus'}}
+        - {name: X-Request-Id, in: header, x-interchange-skip: true, schema: {type: string}}
+      responses:
+        "200":
+          description: A page of payments.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaymentList'}
+    post:
+      summary: Create a payment.
+      x-interchange-auth:
+        auth_types: [SESSION, WORKLOAD]
+        permission: {resource: payments, verb: CREATE}
+      x-interchange-transports: {on: [RPC, REST, BUS], group: payments}
+      x-interchange-cli: {path: [payments, create]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PaymentInput'}
+      responses:
+        "201":
+          description: The created payment.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Payment'}
+
+  /v1/payments/{paymentId}:
+    parameters:
+      - {name: paymentId, in: path, required: true, schema: {type: string}}
+    get:
+      summary: Fetch one payment.
+      x-interchange-auth:
+        auth_types: [SESSION, API_KEY]
+        permission: {resource: payments, verb: READ}
+      x-interchange-cli: {path: [payments, get], args: [payment_id]}
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Payment'}
+    patch:
+      summary: Amend a payment's mutable fields.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: payments, verb: EDIT}
+      x-interchange-cli: {path: [payments, update], args: [payment_id]}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: {type: string}
+                metadata: {type: object, additionalProperties: {type: string}}
+      responses:
+        "200":
+          description: The amended payment.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Payment'}
+    delete:
+      summary: Void a payment that has not settled.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: payments, verb: DELETE}
+      x-interchange-cli: {path: [payments, void], args: [payment_id]}
+      responses:
+        "204": {description: Voided.}
+
+  /v1/payments/{paymentId}/refund:
+    post:
+      summary: Refund a settled payment, in whole or in part.
+      x-interchange-auth:
+        auth_types: [SESSION, WORKLOAD]
+        permission: {resource: refunds, verb: CREATE}
+      x-interchange-transports: {on: [RPC, REST, BUS], group: payments}
+      x-interchange-cli: {path: [payments, refund], args: [payment_id]}
+      parameters:
+        - {name: paymentId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefundInput'}
+      responses:
+        "201":
+          description: The refund.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Refund'}
+
+  /v1/payments/{paymentId}/capture:
+    post:
+      summary: Capture an authorised payment.
+      x-interchange-auth:
+        auth_types: [SESSION, WORKLOAD]
+        permission: {resource: payments, verb: EDIT}
+      x-interchange-cli: {path: [payments, capture], args: [payment_id]}
+      parameters:
+        - {name: paymentId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CaptureInput'}
+      responses:
+        "200":
+          description: The captured payment.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Payment'}
+
+  /v1/customers:
+    get:
+      summary: List customers.
+      x-interchange-auth:
+        auth_types: [SESSION, API_KEY]
+        permission: {resource: customers, verb: READ}
+      x-interchange-cli: {path: [customers, list]}
+      parameters:
+        - {name: pageSize, in: query, schema: {type: integer, format: int32}}
+        - {name: pageToken, in: query, schema: {type: string}}
+        - {name: email, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: A page of customers.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CustomerList'}
+    post:
+      summary: Register a customer.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: customers, verb: CREATE}
+      x-interchange-cli: {path: [customers, create]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CustomerInput'}
+      responses:
+        "201":
+          description: The registered customer.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Customer'}
+
+  /v1/customers/{customerId}:
+    get:
+      summary: Fetch one customer.
+      x-interchange-auth:
+        auth_types: [SESSION, API_KEY]
+        permission: {resource: customers, verb: READ}
+      x-interchange-cli: {path: [customers, get], args: [customer_id]}
+      parameters:
+        - {name: customerId, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Customer'}
+
+  /v1/customers/{customerId}/payment-methods:
+    parameters:
+      - {name: customerId, in: path, required: true, schema: {type: string}}
+    get:
+      summary: List a customer's payment methods.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: payment_methods, verb: READ}
+      x-interchange-cli: {path: [customers, methods]}
+      responses:
+        "200":
+          description: The customer's payment methods.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaymentMethodList'}
+    post:
+      summary: Attach a payment method to a customer.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: payment_methods, verb: CREATE}
+      x-interchange-cli: {path: [customers, methods, add]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PaymentMethod'}
+      responses:
+        "201":
+          description: The attached payment method.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaymentMethod'}
+
+  /v1/invoices:
+    get:
+      operationId: listInvoices
+      summary: List invoices.
+      x-interchange-auth:
+        auth_types: [SESSION]
+        permission: {resource: invoices, verb: READ}
+      x-interchange-cli: {path: [invoices, list]}
+      parameters:
+        - {name: customerId, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: The invoices.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices: {type: array, items: {$ref: '#/components/schemas/Invoice'}}
+                  page: {$ref: '#/components/schemas/PageInfo'}
+
+  /v1/disputes:
+    get:
+      summary: List disputes.
+      x-interchange-cli: {path: [disputes, list]}
+      responses:
+        "200":
+          description: The disputes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disputes: {type: array, items: {$ref: '#/components/schemas/Dispute'}}
+
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe.
+      x-interchange-auth: {public: true}
+      x-interchange-cli: {skip: true}
+      responses:
+        "200":
+          description: Health.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+
+  /v1/webhooks/replay:
+    post:
+      summary: Replay undelivered webhook events. Operator tooling; not a public road.
+      x-interchange-internal: true
+      x-interchange-transports: {on: [BUS], group: payments}
+      x-interchange-cli: {skip: true}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplayInput'}
+      responses:
+        "202":
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replayed: {type: integer, format: int32}
+
+components:
+  schemas:
+    Resource:
+      type: object
+      description: Fields every stored object carries.
+      required: [id, createdAt]
+      properties:
+        id: {type: string, description: A type-prefixed ULID.}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+
+    Money:
+      type: object
+      description: An amount in the minor unit of its currency.
+      required: [currency, minorUnits]
+      properties:
+        currency: {type: string, description: ISO 4217, uppercase.}
+        minorUnits: {type: integer, format: int64}
+
+    PaymentStatus:
+      type: string
+      description: Where a payment is in its lifecycle.
+      enum: [requires_action, authorised, captured, settled, failed, voided]
+
+    Payment:
+      description: A payment, as stored.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          required: [amount, status, customerId]
+          properties:
+            customerId: {type: string}
+            amount: {$ref: '#/components/schemas/Money'}
+            status: {$ref: '#/components/schemas/PaymentStatus'}
+            description: {type: string}
+            paymentMethod: {$ref: '#/components/schemas/PaymentMethod'}
+            metadata: {type: object, additionalProperties: {type: string}}
+            settledAt: {type: string, format: date-time}
+
+    PaymentInput:
+      type: object
+      description: What a client sends to create a payment.
+      required: [customerId, amount]
+      properties:
+        customerId: {type: string}
+        amount: {$ref: '#/components/schemas/Money'}
+        description: {type: string}
+        paymentMethodId: {type: string}
+        metadata: {type: object, additionalProperties: {type: string}}
+        idempotencyKey: {type: string, x-interchange-field: 20}
+
+    PaymentList:
+      type: object
+      description: One page of payments.
+      properties:
+        payments: {type: array, items: {$ref: '#/components/schemas/Payment'}}
+        page: {$ref: '#/components/schemas/PageInfo'}
+
+    PageInfo:
+      type: object
+      description: Cursor pagination.
+      properties:
+        nextPageToken: {type: string}
+        totalSize: {type: integer, format: int32}
+
+    PaymentMethodType:
+      type: string
+      enum: [card, bank_account]
+
+    Card:
+      type: object
+      required: [brand, last4, expMonth, expYear]
+      properties:
+        brand: {type: string}
+        last4: {type: string}
+        expMonth: {type: integer, format: int32}
+        expYear: {type: integer, format: int32}
+
+    BankAccount:
+      type: object
+      required: [country, last4]
+      properties:
+        country: {type: string}
+        last4: {type: string}
+        accountHolder: {type: string}
+
+    PaymentMethod:
+      type: object
+      description: A stored instrument. Exactly one of card or bank_account is set.
+      x-interchange-oneof: instrument
+      required: [id, type]
+      properties:
+        id: {type: string}
+        type: {$ref: '#/components/schemas/PaymentMethodType'}
+        customerId: {type: string}
+      oneOf:
+        - $ref: '#/components/schemas/Card'
+        - $ref: '#/components/schemas/BankAccount'
+
+    PaymentMethodList:
+      type: object
+      properties:
+        paymentMethods: {type: array, items: {$ref: '#/components/schemas/PaymentMethod'}}
+
+    Customer:
+      description: A customer.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          required: [email]
+          properties:
+            email: {type: string}
+            displayName: {type: string}
+            billingAddress: {$ref: '#/components/schemas/Address'}
+            defaultPaymentMethodId: {type: string}
+
+    CustomerInput:
+      type: object
+      required: [email]
+      properties:
+        email: {type: string}
+        displayName: {type: string}
+        billingAddress: {$ref: '#/components/schemas/Address'}
+
+    CustomerList:
+      type: object
+      properties:
+        customers: {type: array, items: {$ref: '#/components/schemas/Customer'}}
+        page: {$ref: '#/components/schemas/PageInfo'}
+
+    Address:
+      type: object
+      required: [line1, country]
+      properties:
+        line1: {type: string}
+        line2: {type: string}
+        city: {type: string}
+        postalCode: {type: string}
+        country: {type: string, description: ISO 3166-1 alpha-2.}
+
+    RefundReason:
+      type: string
+      enum: [requested_by_customer, duplicate, fraudulent]
+
+    RefundInput:
+      type: object
+      required: [reason]
+      properties:
+        amount: {$ref: '#/components/schemas/Money'}
+        reason: {$ref: '#/components/schemas/RefundReason'}
+        note: {type: string}
+
+    Refund:
+      description: A refund against a payment.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          required: [paymentId, amount, reason]
+          properties:
+            paymentId: {type: string}
+            amount: {$ref: '#/components/schemas/Money'}
+            reason: {$ref: '#/components/schemas/RefundReason'}
+            note: {type: string}
+
+    CaptureInput:
+      type: object
+      properties:
+        amount: {$ref: '#/components/schemas/Money'}
+
+    LineItem:
+      type: object
+      required: [description, amount]
+      properties:
+        description: {type: string}
+        quantity: {type: integer, format: int32}
+        amount: {$ref: '#/components/schemas/Money'}
+
+    Invoice:
+      description: An invoice, with its line items inline.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          required: [customerId, lineItems]
+          properties:
+            customerId: {type: string}
+            lineItems: {type: array, items: {$ref: '#/components/schemas/LineItem'}}
+            total: {$ref: '#/components/schemas/Money'}
+            issuedTo:
+              type: object
+              description: A snapshot of the billing details at issue time.
+              properties:
+                email: {type: string}
+                address: {$ref: '#/components/schemas/Address'}
+
+    DisputeStatus:
+      type: string
+      enum: [open, under_review, won, lost]
+
+    Dispute:
+      description: A chargeback.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          required: [paymentId, status]
+          properties:
+            paymentId: {type: string}
+            status: {$ref: '#/components/schemas/DisputeStatus'}
+            evidenceDueAt: {type: string, format: date-time}
+
+    WebhookEvent:
+      type: string
+      enum: [payment.created, payment.settled, refund.created, dispute.opened]
+
+    ReplayInput:
+      type: object
+      required: [events]
+      properties:
+        events: {type: array, items: {$ref: '#/components/schemas/WebhookEvent'}}
+        since: {type: string, format: date-time}
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string}
+        checks: {type: object, additionalProperties: {type: boolean}}
+
+    Error:
+      type: object
+      description: The error body every 4xx and 5xx carries.
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        details: {type: object, description: Free-form; not part of the contract.}
+
+    Currency:
+      type: string
+      description: ISO 4217 currency code.

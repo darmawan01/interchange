@@ -6,6 +6,9 @@ import (
 	"slices"
 	"sync"
 
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -157,6 +160,82 @@ type SourceEmitter interface {
 	// ProtoSources renders the sources as formatted .proto files, keyed by
 	// the path each should be written to, relative to the api root.
 	ProtoSources(ctx context.Context, src Sources, opt Options) (map[string][]byte, Diagnostics, error)
+}
+
+// DepFiles indexes the descriptors a caller supplied in Options.Deps so a
+// frontend can resolve types it did not link.
+//
+// Two things make this less obvious than it looks, and both have already bitten
+// a frontend that wrote it itself:
+//
+// A file already linked into this binary is used as linked, and the copy in
+// Deps is dropped. Every FileDescriptorSet built with --include_imports carries
+// descriptor.proto; building a second object for a path the compiler already
+// has puts two of that file in one link, and then every symbol in it collides
+// with itself.
+//
+// And a supplied file that imports another is registered after it, whatever
+// order the set arrived in, so it shares the one object rather than minting a
+// second copy.
+func DepFiles(deps *descriptorpb.FileDescriptorSet) (*protoregistry.Files, error) {
+	out := &protoregistry.Files{}
+	if deps == nil || len(deps.File) == 0 {
+		return out, nil
+	}
+	res := &fallbackResolver{local: out}
+
+	pending := make([]*descriptorpb.FileDescriptorProto, 0, len(deps.File))
+	for _, fdp := range deps.File {
+		if _, err := protoregistry.GlobalFiles.FindFileByPath(fdp.GetName()); err == nil {
+			continue
+		}
+		pending = append(pending, fdp)
+	}
+
+	// Register whatever resolves, repeatedly, until a pass makes no progress.
+	// A set is conventionally ordered deps-first, but conventionally is not
+	// always, and the failure when it is not is an unresolved import rather
+	// than anything a reader would connect to file ordering.
+	var lastErr error
+	for len(pending) > 0 {
+		var stuck []*descriptorpb.FileDescriptorProto
+		progress := false
+		for _, fdp := range pending {
+			fd, err := protodesc.NewFile(fdp, res)
+			if err != nil {
+				lastErr = fmt.Errorf("%s: %w", fdp.GetName(), err)
+				stuck = append(stuck, fdp)
+				continue
+			}
+			if err := out.RegisterFile(fd); err != nil {
+				return nil, fmt.Errorf("interchange: Options.Deps: %s: %w", fdp.GetName(), err)
+			}
+			progress = true
+		}
+		if !progress {
+			return nil, fmt.Errorf("interchange: Options.Deps: %w", lastErr)
+		}
+		pending = stuck
+	}
+	return out, nil
+}
+
+// fallbackResolver resolves a dependency against the files registered so far,
+// then against what is linked in.
+type fallbackResolver struct{ local *protoregistry.Files }
+
+func (r *fallbackResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
+	if fd, err := r.local.FindFileByPath(path); err == nil {
+		return fd, nil
+	}
+	return protoregistry.GlobalFiles.FindFileByPath(path)
+}
+
+func (r *fallbackResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	if d, err := r.local.FindDescriptorByName(name); err == nil {
+		return d, nil
+	}
+	return protoregistry.GlobalFiles.FindDescriptorByName(name)
 }
 
 var frontends = struct {

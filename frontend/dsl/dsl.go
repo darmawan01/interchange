@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	interchange "github.com/darmawan01/interchange"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"gopkg.in/yaml.v3"
@@ -129,12 +128,9 @@ func (f *Frontend) ProtoSources(_ context.Context, src interchange.Sources, opt 
 // can be referenced -- and the only way the optional modules' annotations
 // arrive without this module linking them in.
 func depRegistry(opt interchange.Options) (*protoregistry.Files, error) {
-	if opt.Deps == nil || len(opt.Deps.File) == 0 {
-		return &protoregistry.Files{}, nil
-	}
-	files, err := protodesc.NewFiles(opt.Deps)
+	files, err := interchange.DepFiles(opt.Deps)
 	if err != nil {
-		return nil, fmt.Errorf("dsl: Options.Deps: %w", err)
+		return nil, fmt.Errorf("dsl: %w", err)
 	}
 	return files, nil
 }

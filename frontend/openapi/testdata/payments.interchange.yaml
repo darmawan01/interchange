@@ -1,0 +1,14 @@
+# The universal annotation fallback (§09 rule 3): annotations keyed by
+# procedure, for the operations the document itself does not annotate.
+procedures:
+  /payments.v1.PaymentsService/ListDisputes:
+    auth:
+      auth_types: [SESSION, WORKLOAD]
+      permission: {resource: disputes, verb: READ}
+    transports: [RPC, REST]
+
+  /payments.v1.PaymentsService/ReplayWebhook:
+    auth:
+      auth_types: [WORKLOAD]
+      permission: {resource: webhooks, verb: EDIT}
+      platform: true
