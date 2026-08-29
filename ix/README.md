@@ -48,17 +48,19 @@ Global flags: `-C, --dir` (run as if started elsewhere), `--buf` (path to the bu
 
 ### `ix describe` — the reviewability property, as a command
 
+Real output, from `examples/catalog`:
+
 ```
 $ ix describe CatalogService.ListProviders
 
-  procedure   /platform.catalog.v1.CatalogService/ListProviders
-  request     ListProvidersRequest  (page_size, page_token, tenant_id)
+  procedure   /catalog.v1.CatalogService/ListProviders
+  request     ListProvidersRequest  (tenant_id, page)
   response    ListProvidersResponse (providers[], next_page_token)
 
   TRANSPORTS
-    rpc       POST /platform.catalog.v1.CatalogService/ListProviders
+    rpc       POST /catalog.v1.CatalogService/ListProviders
     rest      GET  /v1/catalog/providers
-    bus       rpc.platform.catalog.v1.CatalogService.ListProviders
+    bus       rpc.catalog.v1.CatalogService.ListProviders
                 queue group: catalog · at-least-once: no · max payload: 1 MiB
     mqtt      not exposed
     ws        not exposed
@@ -67,7 +69,7 @@ $ ix describe CatalogService.ListProviders
     permission   providers.read
     accepts      SESSION, API_KEY, WORKLOAD
     public       no
-    tenant field tenant_id (declared)
+    tenant field tenant_id (convention)
 
   CLI          catalog providers
   idempotent   yes (NO_SIDE_EFFECTS)
@@ -77,8 +79,8 @@ Three ways to name the RPC, whichever you have in front of you:
 
 ```
 ix describe CatalogService.ListProviders
-ix describe platform.catalog.v1.CatalogService.ListProviders
-ix describe /platform.catalog.v1.CatalogService/ListProviders
+ix describe catalog.v1.CatalogService.ListProviders
+ix describe /catalog.v1.CatalogService/ListProviders
 ```
 
 The `AUTHORIZATION` block reads whatever `(auth)` annotation the descriptor carries. Core takes no
@@ -103,6 +105,7 @@ the SDK method are all *derived* from the names.
 | `BAND_COLLISION` | error | Two annotations at one number on one extendee — one is silently dropped |
 | `INTERNAL_EXPOSED` | error | `(internal)` and a public road contradict each other |
 | `REST_NO_HTTP_RULE` | warn | A REST road with no `(google.api.http)` rule has no derivable address |
+| `GROUP_WITHOUT_BUS` | warn | A competing-consumer `group` on a method that travels no broker is a setting nothing reads |
 | `TIMESTAMP_SUFFIX`, `DURATION_UNIT` | warn | A `Timestamp` should end `_at`; a scalar duration should carry its unit |
 | `AUTH_MISSING` | configured | Only when `auth.on_missing_annotation` is set — that is the module's policy, not a framework rule |
 

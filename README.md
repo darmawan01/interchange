@@ -120,6 +120,21 @@ Full detail, exit criteria and de-risking notes → **[BUILD-PLAN.md](BUILD-PLAN
 
 ---
 
+## Documentation
+
+Three sets, with different jobs.
+
+| Set | What it is for | Start at |
+| --- | --- | --- |
+| **[The guide](docs/guide/)** | **How to use this.** Eight task pages: install `ix`, write a contract, serve it, call it, install the optional modules, add a transport, import a non-proto format, run it in CI. Every command was run and every output pasted from a real terminal | [`docs/guide/01-getting-started.md`](docs/guide/01-getting-started.md) |
+| **[The design docs](#documents)** | **Why it is the way it is.** The problem, the proposal, and the design of each layer — the argument, not the instructions | [`docs/00-problem.md`](docs/00-problem.md) |
+| **[The ADRs](docs/adr/)** | **What was decided, and what it cost.** Fifty-four records, each with the alternatives that lost and the file or test that enforces it | [`docs/adr/README.md`](docs/adr/README.md) |
+
+Plus [`docs/annotation-band.md`](docs/annotation-band.md) — the extension-number table, which a new
+annotation must claim a row in *before* it exists — and a README in every module
+(`auth/`, `errors/`, `validate/`, `driver/*/`, `binding/rest/`, `frontend/*/`, `tools/`, `ix/`,
+`examples/catalog/`), which is the reference the guide is the task-shaped version of.
+
 ## Documents
 
 | # | Document | Covers |

@@ -183,8 +183,10 @@ lint:
 format:
 	ix fmt
 
+# subdir=. because a project is usually not at the root of its repository,
+# and buf resolves the ref relative to the repository, not to you.
 breaking:
-	ix breaking --against '.git#branch=main'
+	ix breaking --against '.git#branch=main,subdir=.'
 
 # One command in CI. It regenerates into a temp tree and fails if the
 # committed output moved.
@@ -223,8 +225,16 @@ jobs:
         with:
           setup_only: true
 
+      # Pin the version rather than tracking @latest: a toolchain that
+      # upgrades itself without a commit makes the drift gate below
+      # non-reproducible, which is the one property it has to have.
+      #
+      # Until Interchange is published this resolves nothing -- build ix
+      # from a checkout and put it on PATH, or vendor the binary.
       - name: install ix
-        run: go install github.com/darmawan01/interchange/ix/cmd/ix@latest
+        run: go install github.com/darmawan01/interchange/ix/cmd/ix@${IX_VERSION:-latest}
+        env:
+          IX_VERSION: latest
 
       - name: lint
         run: ix lint

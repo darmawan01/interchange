@@ -13,7 +13,7 @@ package interchange.transport.v1;
 
 // One request, on any transport.
 message Request {
-  // "/platform.catalog.v1.CatalogService/ListProviders"
+  // "/interchange.catalog.v1.CatalogService/ListProviders"
   // Deliberately IDENTICAL to the Connect procedure string, so one
   // interceptor chain and one dispatch table serve every binding.
   string procedure = 1;

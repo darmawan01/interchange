@@ -170,37 +170,24 @@ Verified end to end against this directory:
 
 | Command | Result |
 | --- | --- |
-| `ix generate` | reproduces the committed `gen/go` tree **byte for byte** — the synthesized template is `buf.gen.catalog.yaml` minus the TS plugin |
+| `ix generate` | reproduces the committed tree **byte for byte**, Go and TypeScript |
 | `ix describe CatalogService.ListProviders` | prints the four roads, the REST URI, the queue group, the permission atom, the tenant field and the CLI path |
-| `ix verify` | ✓ on a clean tree; mutate one byte of `gen/go/authz/permissions.authz.go` and it fails with `gen/go/authz/permissions.authz.go differs`. It is a real gate. |
-| `ix lint` | **1 error**, and the error is wrong — see below |
-| `ix doctor` | ✓ except `buf.yaml missing`: the buf workspace root is the repo root, not this directory |
+| `ix verify` | ✓ on a clean tree, over six targets; mutate one byte of any generated file and it names that file and exits 1. A real gate. |
+| `ix lint` | ✓ — 5 RPCs, 8 extensions, band checked |
+| `ix doctor` | ✓ |
 
-Three findings for the lead, none of them worked around here:
+## What building this found in `ix`
 
-1. **`ix lint`'s `INTERNAL_EXPOSED` rule contradicts the runtime.** It errors on any method that is
-   `(internal)` and declares `rest`, `bus`, `mqtt` or `ws`
-   (`ix/internal/lint/lint.go:201`). But a bus is not a public binding: `rpc.Binding.Mount` and
-   `rest.Binding.Mount` skip `Internal`, and `engine.Server.Plan` deliberately does not. `internal`
-   + `bus` is precisely how an RPC is made reachable service-to-service and unreachable everywhere
-   else — which is what `Reconcile` declares, what the design docs describe, and what
-   `TestTheTransportsAnnotationIsLoadBearing` asserts on a running NATS broker. The rule as written
-   fails CI on a correct contract. Either it should exempt `bus`, or the engine should skip
-   internal methods and the docs are wrong; the tests here say the rule is.
-2. **`interchange.yaml` cannot express buf's per-plugin `include_imports`**, so `gen/ts` is not
-   under `ix`'s gate. A protobuf-es file names its imports' descriptors at runtime, so the
-   annotation protos must be emitted alongside it or the front end does not typecheck —
-   `gentmpl.plugin` carries only `remote`/`local`/`out`/`opt`/`strategy`
-   (`ix/internal/gentmpl/gentmpl.go`). The TypeScript generator is therefore in
-   `buf.gen.catalog.yaml` and **not** in `interchange.yaml`: listing it there would make
-   `ix verify` report every dependency `_pb.ts` as "no longer generated". One field on `Generate`
-   closes this.
-3. **`ix doctor` looks for `buf.yaml` beside `interchange.yaml`.** In a repo where the buf
-   workspace is above the project root — which is this repo — that is a false negative.
-   `ix generate` and `ix verify` are unaffected: buf walks up and finds the workspace.
+Every one of these is fixed. They are recorded because the *kind* of defect is worth knowing, not
+because any is open — and because the example existing is what found them.
 
-Cosmetic: `ix verify` lists a differing file once per output directory that contains it, so
-`gen/go` and `gen/go/authz` both report `permissions.authz.go differs`.
+| What was wrong | Where it went |
+| --- | --- |
+| `ix lint` errored on `(internal)` combined with any transport, which would have failed CI on this example's `Reconcile` | The rule flags only the public roads — rpc, rest and ws. A bus is not a public binding: `rpc.Binding.Mount` and `rest.Binding.Mount` skip `Internal` while `engine.Server.Plan` deliberately does not, so `internal` + `bus` is how an RPC is made reachable service-to-service and nowhere else. [ADR-0050](../../docs/adr/0050-internal-means-public-bindings-skip-it.md) |
+| `interchange.yaml` could not express buf's per-plugin `include_imports`, so the TypeScript generator lived only in the buf template and `gen/ts` sat outside the drift gate | `include_imports` is a field on `Generate`. `ix verify` covers six targets here and fails on a one-byte change to a `.ts` file — generated output outside the gate is the one place it must never sit |
+| `ix` read any plugin path containing a slash as a *remote* reference, so `node_modules/.bin/protoc-gen-es` produced "the server hosted at that remote is unavailable" | A remote is host-qualified: its first path element contains a dot |
+| `ix doctor` looked for `buf.yaml` beside `interchange.yaml`, reporting a broken setup for a project nested inside a workspace | It walks up, the way buf does |
+| `ix verify` listed a differing file once per containing output directory, so one stale file read as two problems | Reported once |
 
 ## Not here yet
 

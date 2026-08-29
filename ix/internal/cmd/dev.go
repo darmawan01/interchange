@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -46,9 +47,26 @@ func newDev(g *globals) *cobra.Command {
 	return c
 }
 
+// devSocket keeps the socket beside the project so two projects can run `ix
+// dev` at once and neither has to be told where the other put its socket.
+//
+// A unix socket path is capped by sun_path -- 104 bytes on darwin, 108 on
+// linux -- and a deep checkout blows past it. The fallback hashes the project
+// root into a short name under the temp directory, which keeps the
+// one-socket-per-project property without the length.
 func devSocket(p *Project) string {
-	return filepath.Join(p.Cfg.Root, ".interchange", "dev.sock")
+	sock := filepath.Join(p.Cfg.Root, ".interchange", "dev.sock")
+	if len(sock) <= maxSocketPath {
+		return sock
+	}
+	sum := sha256.Sum256([]byte(p.Cfg.Root))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("ix-dev-%x.sock", sum[:8]))
 }
+
+// maxSocketPath is the smallest sun_path across the platforms this runs on,
+// less room for the null terminator. Being conservative costs nothing: the
+// fallback path is short either way.
+const maxSocketPath = 100
 
 func runDev(g *globals) error {
 	p, err := openProject(g)

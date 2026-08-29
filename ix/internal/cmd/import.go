@@ -114,17 +114,11 @@ func newImport(g *globals) *cobra.Command {
 			}
 
 			files, diags, perr := emitter.ProtoSources(cmd.Context(), src, opt)
-			report(g, diags)
+			blocking := report(g, diags)
 
 			if perr != nil || diags.HasErrors() {
-				n := 0
-				for _, d := range diags {
-					if d.Severity == interchange.SeverityError {
-						n++
-					}
-				}
-				if n > 0 {
-					fmt.Fprintf(g.ui.Out, "  nothing written — resolve the %d item(s) above, then re-run\n\n", n)
+				if blocking > 0 {
+					fmt.Fprintf(g.ui.Out, "  nothing written — resolve the %d item(s) above, then re-run\n\n", blocking)
 					return failed(3)
 				}
 				return fail(3, perr)
@@ -182,27 +176,38 @@ func resolveFrontend(name, path string, head []byte) (interchange.Frontend, erro
 	return fe, nil
 }
 
-// report renders the counts and the unresolved constructs. Counts arrive as
-// note-severity diagnostics, which is why a frontend needs no separate
-// reporting interface to produce the block in §11.
-func report(g *globals, diags interchange.Diagnostics) {
-	var notes, problems []interchange.Diagnostic
+// report renders the counts and the unresolved constructs, and returns the
+// number of BLOCKING ones. Counts arrive as note-severity diagnostics, which
+// is why a frontend needs no separate reporting interface to produce the block
+// in §11.
+//
+// Errors and warnings are counted separately because they mean different
+// things: an error stops the import, a warning does not. Lumping them into one
+// number produced "2 constructs need a decision" above "resolve the 1 item
+// above", which is the kind of small inconsistency that makes a reader
+// distrust the rest of the output.
+func report(g *globals, diags interchange.Diagnostics) int {
+	var notes, problems, warnings []interchange.Diagnostic
 	for _, d := range diags {
-		if d.Severity == interchange.SeverityNote {
+		switch d.Severity {
+		case interchange.SeverityNote:
 			notes = append(notes, d)
-			continue
+		case interchange.SeverityWarning:
+			warnings = append(warnings, d)
+		default:
+			problems = append(problems, d)
 		}
-		problems = append(problems, d)
 	}
 	for _, n := range notes {
 		fmt.Fprintf(g.ui.Out, "  ✓ %s\n", n.Message)
 	}
-	if len(notes) > 0 && len(problems) > 0 {
+	if len(notes) > 0 && (len(problems) > 0 || len(warnings) > 0) {
 		fmt.Fprintln(g.ui.Out)
 	}
 	if len(problems) > 0 {
 		fmt.Fprintf(g.ui.Out, "  ⚠ %d construct(s) need a decision:\n\n", len(problems))
 	}
+	problems = append(problems, warnings...)
 	for _, p := range problems {
 		loc := p.Path
 		if p.Line > 0 {
@@ -217,6 +222,7 @@ func report(g *globals, diags interchange.Diagnostics) {
 		}
 		fmt.Fprintln(g.ui.Out)
 	}
+	return len(problems) - len(warnings)
 }
 
 // detectFormat sniffs the source rather than trusting the extension: a .yaml
