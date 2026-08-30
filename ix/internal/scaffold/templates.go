@@ -228,13 +228,10 @@ jobs:
       # Pin the version rather than tracking @latest: a toolchain that
       # upgrades itself without a commit makes the drift gate below
       # non-reproducible, which is the one property it has to have.
-      #
-      # Until Interchange is published this resolves nothing -- build ix
-      # from a checkout and put it on PATH, or vendor the binary.
       - name: install ix
-        run: go install github.com/darmawan01/interchange/ix/cmd/ix@${IX_VERSION:-latest}
+        run: go install github.com/darmawan01/interchange/ix/cmd/ix@${IX_VERSION}
         env:
-          IX_VERSION: latest
+          IX_VERSION: v0.1.1
 
       - name: lint
         run: ix lint

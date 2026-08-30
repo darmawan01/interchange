@@ -5,26 +5,29 @@ roads. Ten minutes, and no protobuf knowledge assumed.
 
 ## Installing `ix`
 
-**Nothing is published yet.** The design names five channels ([§11](../11-cli.md)) and the
-`.goreleaser.yaml` at the repo root builds the binaries for them, but none of them are live today.
-Verified 2026-08-30:
-
 ```
-$ go install github.com/darmawan01/interchange/ix/cmd/ix@latest
-go: github.com/darmawan01/interchange/ix/cmd/ix@latest: module github.com/darmawan01/interchange/ix/cmd/ix:
-    reading https://proxy.golang.org/.../@v/list: 404 Not Found
-
-$ npm view @interchange/cli version
-npm error 404 Not Found - GET https://registry.npmjs.org/@interchange%2fcli - Not found
+$ go install github.com/darmawan01/interchange/ix/cmd/ix@v0.1.1
+$ ix --version
+ix version v0.1.1
 ```
+
+That is the whole install. `ix` shells out to [`buf`](https://buf.build/docs/installation), which
+is the one other thing you need on PATH — `ix doctor` checks for it and tells you if it is missing.
+
+The design names five distribution channels ([§11](../11-cli.md)); one of them is live. Verified
+2026-08-30:
 
 | Channel | Command | Today |
 | --- | --- | --- |
-| **Clone + build** | `make ix` | **works — use this** |
-| Go | `go install github.com/darmawan01/interchange/ix/cmd/ix@latest` | 404: the module is not published |
-| npm | `npx @interchange/cli` | 404: `packages/cli` is written, not published |
-| Homebrew | `brew install <tap>/ix` | no tap exists |
+| **Go** | `go install github.com/darmawan01/interchange/ix/cmd/ix@v0.1.1` | **works** |
+| Clone + build | `make ix` | works, and is what to use if you are changing `ix` itself |
+| npm | `npx @interchange/cli` | 404 — `packages/cli` is written and verified with `npm pack`, not published |
+| Homebrew | `brew install <tap>/ix` | no tap exists; `.goreleaser.yaml` has the formula, uploads are off |
 | Container | `docker run ghcr.io/<org>/ix generate` | `Dockerfile` builds it; no image is pushed |
+
+The npm channel is the one that matters most for adoption and is not live yet — see
+[ADR-0049](../adr/0049-the-npm-channel-is-first-class.md) for why a front-end team should never
+need a Go toolchain to get typed clients.
 
 So the reliable path is a clone:
 

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,20 @@ import (
 // generated output anywhere -- a version string that changes per build would
 // flap the drift gate.
 var Version = "dev"
+
+func init() {
+	// A `go install ...@v0.1.0` build carries no ldflags, so without this it
+	// reports "dev" and `ix doctor` tells a user nothing about which binary
+	// they are running. The module version is right there in the build info.
+	if Version != "dev" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return
+	}
+	Version = info.Main.Version
+}
 
 type globals struct {
 	dir     string

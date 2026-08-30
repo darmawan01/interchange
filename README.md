@@ -183,6 +183,7 @@ calling the seam right — and for treating the next one as likely to find a sev
 ## Try it
 
 ```bash
+go install github.com/darmawan01/interchange/ix/cmd/ix@v0.1.1   # or, from a checkout:
 make plugins ix          # build the plugins and the CLI, no network needed
 make test                # 229 tests across thirteen modules
 make verify              # regenerate every contract and fail on drift
