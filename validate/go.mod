@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
 	buf.build/go/protovalidate v1.3.0
-	github.com/darmawan01/interchange v0.0.0
+	github.com/darmawan01/interchange v0.1.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -20,4 +20,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 )
 
-replace github.com/darmawan01/interchange => ..

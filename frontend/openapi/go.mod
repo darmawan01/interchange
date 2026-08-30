@@ -6,7 +6,7 @@ go 1.25.7
 
 require (
 	github.com/bufbuild/protocompile v0.14.1
-	github.com/darmawan01/interchange v0.0.0
+	github.com/darmawan01/interchange v0.1.0
 	github.com/pb33f/libopenapi v0.38.7
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5
@@ -19,8 +19,8 @@ require (
 // survived the transform, and internal/nolink proves the frontend works
 // without them.
 require (
-	github.com/darmawan01/interchange/auth v0.0.0
-	github.com/darmawan01/interchange/tools v0.0.0
+	github.com/darmawan01/interchange/auth v0.1.0
+	github.com/darmawan01/interchange/tools v0.1.0
 )
 
 require (
@@ -31,8 +31,3 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 )
 
-replace github.com/darmawan01/interchange => ../..
-
-replace github.com/darmawan01/interchange/auth => ../../auth
-
-replace github.com/darmawan01/interchange/tools => ../../tools

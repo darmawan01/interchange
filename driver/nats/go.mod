@@ -3,7 +3,7 @@ module github.com/darmawan01/interchange/driver/nats
 go 1.25.0
 
 require (
-	github.com/darmawan01/interchange v0.0.0
+	github.com/darmawan01/interchange v0.1.0
 	github.com/nats-io/nats-server/v2 v2.12.2
 	github.com/nats-io/nats.go v1.53.1
 )
@@ -22,4 +22,3 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/darmawan01/interchange => ../..
